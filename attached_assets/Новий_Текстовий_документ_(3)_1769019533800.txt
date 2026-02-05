@@ -1,0 +1,541 @@
+# src/ui/components/dashboard_tab.py
+import customtkinter as ctk
+import threading
+import os
+import random
+import subprocess
+import psutil
+import re
+from src.config.theme import *
+from src.utils.ui_helpers import log, build_link, parse_link_local
+from src.core.engine import Engine
+from .account_card import AccountCard
+
+# --- КОЛЬОРИ ДИЗАЙНУ ---
+COLOR_BG_BLACK = "#000000"       
+COLOR_PANEL_BG = "#050505"       
+COLOR_FILLED_PANEL = "#6a1b9a"   
+COLOR_ACCENT = "#9d00ff"         
+COLOR_TEXT_MAIN = "#FFFFFF"
+COLOR_CHART_GREEN = "#2ecc71"
+COLOR_CHART_RED = "#e74c3c"
+
+# --- ШРИФТИ ---
+FONT_TITLE_DAILY = ("Segoe UI", 22, "bold") 
+FONT_TASK = ("Segoe UI", 15)
+
+class DonutChart(ctk.CTkCanvas):
+    def __init__(self, master, width=120, height=120, bg_color=COLOR_FILLED_PANEL):
+        super().__init__(master, width=width, height=height, bg=bg_color, highlightthickness=0)
+        self.w = width; self.h = height
+
+    def draw(self, percent_live):
+        self.delete("all")
+        pad = 8
+        x0, y0, x1, y1 = pad, pad, self.w-pad, self.h-pad
+        start_angle = 90; extent = (percent_live / 100) * 360
+        self.create_oval(x0, y0, x1, y1, outline=COLOR_CHART_RED, width=8)
+        if percent_live > 0:
+            self.create_arc(x0, y0, x1, y1, start=start_angle, extent=extent, style="arc", outline=COLOR_CHART_GREEN, width=8)
+
+class DashedFrame(ctk.CTkCanvas):
+    def __init__(self, master, save_callback=None):
+        # Прибираємо фіксовані розміри
+        super().__init__(master, bg=COLOR_BG_BLACK, highlightthickness=0)
+        self.save_callback = save_callback
+        self.is_editing = False
+        self.bind("<Configure>", self.on_resize)
+        self.bind("<Button-1>", self.on_click)
+        
+        self.form_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.entry_name = ctk.CTkEntry(self.form_frame, placeholder_text="Назва", 
+                                       fg_color="#1a1a1a", border_color=COLOR_ACCENT, height=30)
+        self.entry_name.pack(pady=(5, 5), padx=10, fill="x")
+        
+        self.entry_link = ctk.CTkEntry(self.form_frame, placeholder_text="Лінк", 
+                                       fg_color="#1a1a1a", border_color=COLOR_ACCENT, height=30)
+        self.entry_link.pack(pady=5, padx=10, fill="x")
+        
+        btn_box = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        btn_box.pack(pady=5)
+        
+        ctk.CTkButton(btn_box, text="✔", width=40, fg_color=COLOR_ACCENT, command=self.save).pack(side="left", padx=5)
+        ctk.CTkButton(btn_box, text="✖", width=40, fg_color="#333", command=self.hide_form).pack(side="left", padx=5)
+
+    def on_resize(self, event):
+        self.width = event.width
+        self.height = event.height
+        self.draw_bg()
+
+    def on_click(self, event): 
+        if not self.is_editing:
+            self.show_form()
+
+    def draw_bg(self):
+        self.delete("all")
+        if self.is_editing:
+            return
+        
+        w, h = self.width, self.height
+        if w < 20 or h < 20:
+            return
+        
+        # Малюємо максимальний квадрат по центру
+        size = min(w, h) - 10 
+        x_offset = (w - size) / 2
+        y_offset = (h - size) / 2
+        
+        rad = 20
+        dash_val = (10, 10)
+        wid = 2
+        col = "#666666"
+
+        x0, y0 = x_offset, y_offset
+        x1, y1 = x_offset + size, y_offset + size
+
+        # Лінії
+        self.create_line(x0+rad, y0, x1-rad, y0, fill=col, width=wid, dash=dash_val)
+        self.create_line(x0+rad, y1, x1-rad, y1, fill=col, width=wid, dash=dash_val)
+        self.create_line(x0, y0+rad, x0, y1-rad, fill=col, width=wid, dash=dash_val)
+        self.create_line(x1, y0+rad, x1, y1-rad, fill=col, width=wid, dash=dash_val)
+        
+        # Кути
+        self.create_arc(x0, y0, x0+2*rad, y0+2*rad, start=90, extent=90, style="arc", outline=col, width=wid, dash=dash_val)
+        self.create_arc(x1-2*rad, y0, x1, y0+2*rad, start=0, extent=90, style="arc", outline=col, width=wid, dash=dash_val)
+        self.create_arc(x1-2*rad, y1-2*rad, x1, y1, start=270, extent=90, style="arc", outline=col, width=wid, dash=dash_val)
+        self.create_arc(x0, y1-2*rad, x0+2*rad, y1, start=180, extent=90, style="arc", outline=col, width=wid, dash=dash_val)
+
+        cx, cy = w/2, h/2
+        self.create_text(cx, cy-12, text="+ Додати", fill="#888888", font=("Segoe UI", 18, "bold"))
+        self.create_text(cx, cy+15, text="проект", fill="#888888", font=("Segoe UI", 18, "bold"))
+
+    def show_form(self):
+        self.is_editing = True
+        self.delete("all")
+        self.form_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.9)
+        self.entry_name.focus()
+
+    def hide_form(self):
+        self.is_editing = False
+        self.form_frame.place_forget()
+        self.entry_name.delete(0, "end")
+        self.entry_link.delete(0, "end")
+        self.draw_bg()
+
+    def save(self):
+        if self.save_callback:
+            self.save_callback(self.entry_name.get(), self.entry_link.get())
+        self.hide_form()
+
+class TaskItem(ctk.CTkFrame):
+    def __init__(self, master, text, is_checked, on_change_callback, delete_callback):
+        super().__init__(master, fg_color="transparent")
+        self.on_change_callback = on_change_callback
+        self.delete_callback = delete_callback
+        
+        self.var = ctk.BooleanVar(value=is_checked)
+        self.checkbox = ctk.CTkCheckBox(self, text="", variable=self.var, 
+                                        width=22, height=22, corner_radius=6, border_width=2,
+                                        fg_color=COLOR_ACCENT, border_color="#7b00cc", hover_color="#550088",
+                                        command=self.on_trigger)
+        self.checkbox.pack(side="left", padx=(0, 10), pady=5)
+        
+        self.entry = ctk.CTkEntry(self, font=FONT_TASK, fg_color="transparent", border_width=0, text_color="#ddd")
+        self.entry.insert(0, text)
+        self.entry.pack(side="left", fill="x", expand=True)
+        self.entry.bind("<KeyRelease>", self.on_trigger)
+        
+        self.btn_del = ctk.CTkButton(self, text="×", width=25, fg_color="transparent", hover_color="#222", text_color="#555", command=lambda: self.delete_callback(self))
+        self.btn_del.pack(side="right")
+
+    def on_trigger(self, event=None): 
+        if self.on_change_callback:
+            self.on_change_callback()
+
+    def get_data(self):
+        return self.var.get(), self.entry.get()
+
+class DashboardTab(ctk.CTkFrame):
+    def __init__(self, master, data_manager, binder):
+        super().__init__(master, fg_color=COLOR_BG_BLACK, corner_radius=0)
+        self.dm = data_manager
+        self.binder = binder
+        
+        self.config = self.dm.load_config()
+        self.projects = self.dm.load_projects()
+        self.notes = self.dm.load_notes()
+        
+        self.daily_note_path = os.path.join(os.getcwd(), "daily_note.md")
+        self.daily_title_path = os.path.join(os.getcwd(), "daily_title.txt")
+        
+        self.daily_title_text = "Daily"
+        if os.path.exists(self.daily_title_path):
+            with open(self.daily_title_path, "r", encoding="utf-8") as f:
+                self.daily_title_text = f.read().strip()
+        
+        self.running_single_pids = {} 
+        self.profiles_queue = []
+        self.batch_stop_event = threading.Event()
+        self.total_profiles_count = 1 
+        self.processed_global_count = 0
+        self.account_widgets = {}
+
+        self.page_overview = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_overview_ui(self.page_overview)
+        self.page_accounts = ctk.CTkFrame(self, fg_color="transparent")
+        self.setup_accounts_ui(self.page_accounts)
+
+        self.show_overview()
+        self.check_process_status_loop()
+        self.update_stats()
+
+    def setup_overview_ui(self, parent):
+        parent.grid_columnconfigure(0, weight=6, uniform="cols") 
+        parent.grid_columnconfigure(1, weight=4, uniform="cols")
+        parent.grid_rowconfigure(0, weight=1)
+
+        # === ЛІВА КОЛОНКА ===
+        left_col = ctk.CTkFrame(parent, fg_color="transparent")
+        left_col.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        # --- БАЛАНС ВИСОТИ ---
+        # 6:5 (Верх:Низ). Зменшуємо верхній блок, щоб нижній став вищим.
+        # Це дозволить квадрату "Додати проект" вирости.
+        left_col.grid_rowconfigure(0, weight=6) 
+        left_col.grid_rowconfigure(1, weight=5)
+        left_col.grid_columnconfigure(0, weight=1)
+
+        # 1. МАСОВИЙ ЗАПУСК
+        self.panel_launch = ctk.CTkFrame(left_col, fg_color=COLOR_BG_BLACK, border_width=2, border_color=COLOR_ACCENT, corner_radius=15)
+        self.panel_launch.grid(row=0, column=0, sticky="nsew", pady=(0, 15)) 
+        self.build_launch_content(self.panel_launch)
+
+        # 2. НИЖНІЙ БЛОК
+        bottom_left = ctk.CTkFrame(left_col, fg_color="transparent")
+        bottom_left.grid(row=1, column=0, sticky="nsew")
+        
+        # --- БАЛАНС ШИРИНИ 3:2 ---
+        # 3 частини (60%) Логи, 2 частини (40%) Додати.
+        # Це золота середина: Логи довші, але колонка "Додати" досить широка,
+        # щоб квадрат міг розтягнутися на всю висоту ряду.
+        bottom_left.grid_columnconfigure(0, weight=3) 
+        bottom_left.grid_columnconfigure(1, weight=2) 
+        bottom_left.grid_rowconfigure(0, weight=1)
+
+        # Логи
+        self.panel_logs = ctk.CTkFrame(bottom_left, fg_color=COLOR_FILLED_PANEL, corner_radius=15)
+        self.panel_logs.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
+        self.build_logs_content(self.panel_logs)
+
+        # Додати проект
+        self.canvas_add = DashedFrame(bottom_left, save_callback=self.save_new_project_inline)
+        self.canvas_add.grid(row=0, column=1, sticky="nsew") 
+
+        # === ПРАВА КОЛОНКА ===
+        right_col = ctk.CTkFrame(parent, fg_color="transparent")
+        right_col.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        right_col.grid_columnconfigure(0, weight=1)
+        right_col.grid_rowconfigure(0, weight=3)  # Stats
+        right_col.grid_rowconfigure(1, weight=7)  # Daily
+
+        # 3. СТАТИСТИКА
+        self.panel_stats = ctk.CTkFrame(right_col, fg_color=COLOR_FILLED_PANEL, corner_radius=15)
+        self.panel_stats.grid(row=0, column=0, sticky="nsew", pady=(0, 15))
+        self.build_stats_content(self.panel_stats)
+
+        # 4. DAILY
+        self.panel_daily = ctk.CTkFrame(right_col, fg_color=COLOR_BG_BLACK, border_width=2, border_color=COLOR_ACCENT, corner_radius=15)
+        self.panel_daily.grid(row=1, column=0, sticky="nsew")
+        self.build_daily_content(self.panel_daily)
+
+    def build_launch_content(self, parent):
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=25, pady=20)
+        ctk.CTkLabel(header, text="Масовий запуск", font=("Segoe UI", 26, "bold"), text_color="white").pack(side="left")
+        
+        btn_box = ctk.CTkFrame(header, fg_color="transparent")
+        btn_box.pack(side="right")
+        ctk.CTkButton(btn_box, text="Керування", width=110, height=32, fg_color=COLOR_ACCENT, hover_color="#7b00cc").pack(side="left", padx=5)
+        ctk.CTkButton(btn_box, text="Мої акаунти", width=110, height=32, fg_color="transparent", border_width=1, border_color="#555", hover_color="#333", command=self.show_accounts).pack(side="left", padx=5)
+
+        form = ctk.CTkFrame(parent, fg_color="transparent")
+        form.pack(fill="both", expand=True, padx=25, pady=(0, 10))
+
+        group_frame = ctk.CTkFrame(form, fg_color="transparent", border_width=1, border_color="#444", corner_radius=10)
+        group_frame.pack(fill="both", expand=True, pady=5)
+        
+        ctk.CTkLabel(group_frame, text="Оберіть проект:", text_color="#aaa", anchor="w").pack(fill="x", padx=20, pady=(15, 2))
+        self.project_var = ctk.StringVar(value="Оберіть зі списку")
+        self.combo_project = ctk.CTkOptionMenu(group_frame, variable=self.project_var, values=list(self.projects.keys()) or ["Empty"],
+                                               fg_color="#1a1a1a", button_color="#333", button_hover_color="#444", text_color="white", height=40)
+        self.combo_project.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(group_frame, text="Діапазон акаунтів:", text_color="#aaa", anchor="w").pack(fill="x", padx=20, pady=(0, 2))
+        range_box = ctk.CTkFrame(group_frame, fg_color="transparent")
+        range_box.pack(fill="x", padx=20, pady=(0, 10))
+        
+        self.entry_start = ctk.CTkEntry(range_box, placeholder_text="Початок", width=100, height=40, fg_color="#1a1a1a", border_color="#444", justify="center")
+        self.entry_start.pack(side="left", padx=(0, 10))
+        self.entry_end = ctk.CTkEntry(range_box, placeholder_text="Кінець", width=100, height=40, fg_color="#1a1a1a", border_color="#444", justify="center")
+        self.entry_end.pack(side="left", padx=(0, 15))
+        self.check_mix = ctk.CTkCheckBox(range_box, text="Мікс", fg_color=COLOR_ACCENT, hover_color="#7b00cc", width=20, height=20)
+        self.check_mix.pack(side="left")
+        self.check_mix.select()
+
+        self.btn_launch = ctk.CTkButton(group_frame, text="ЗАПУСТИТИ", font=("Segoe UI", 18, "bold"), height=50,
+                                        fg_color=COLOR_ACCENT, hover_color="#7b00cc", command=self.start_process)
+        self.btn_launch.pack(fill="x", padx=20, pady=(10, 20))
+        self.progress_bar = ctk.CTkProgressBar(group_frame, height=10, progress_color=COLOR_ACCENT)
+        self.progress_bar.set(0)
+
+    def build_stats_content(self, parent):
+        ctk.CTkLabel(parent, text="Статистика живих акаунтів", font=("Segoe UI", 18, "bold"), text_color="white").pack(anchor="w", padx=20, pady=(15, 5))
+        content = ctk.CTkFrame(parent, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=15, pady=5)
+        self.chart = DonutChart(content, width=80, height=80, bg_color=COLOR_FILLED_PANEL)
+        self.chart.pack(side="left", padx=5)
+        info = ctk.CTkFrame(content, fg_color="transparent")
+        info.pack(side="left", padx=10, fill="y", expand=True)
+        self.lbl_stat_live = ctk.CTkLabel(info, text="0% Живих", font=("Segoe UI", 22, "bold"), text_color="white")
+        self.lbl_stat_live.pack(anchor="w", pady=(5, 0))
+        self.lbl_stat_ban = ctk.CTkLabel(info, text="| 0% Заблоковано", font=("Segoe UI", 13), text_color=COLOR_CHART_RED)
+        self.lbl_stat_ban.pack(anchor="w")
+
+    def build_logs_content(self, parent):
+        ctk.CTkLabel(parent, text="Останні дії", font=("Segoe UI", 18, "bold"), text_color="white").pack(anchor="w", padx=20, pady=15)
+        self.scroll_logs = ctk.CTkScrollableFrame(parent, fg_color="transparent", 
+                                                  scrollbar_button_color=COLOR_FILLED_PANEL, 
+                                                  scrollbar_button_hover_color=COLOR_FILLED_PANEL) 
+        self.scroll_logs.pack(fill="both", expand=True, padx=10, pady=10)
+        self.add_log_entry("Система готова")
+
+    def build_daily_content(self, parent):
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(20, 5))
+        self.entry_daily_title = ctk.CTkEntry(header, font=FONT_TITLE_DAILY, fg_color=COLOR_BG_BLACK, border_width=0, text_color="#aa88ff")
+        self.entry_daily_title.pack(side="left", fill="x", expand=True)
+        self.entry_daily_title.insert(0, self.daily_title_text)
+        self.entry_daily_title.bind("<KeyRelease>", self.save_daily_title)
+
+        self.daily_list_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent", 
+                                                       scrollbar_button_color="#222", 
+                                                       scrollbar_button_hover_color="#333")
+        self.daily_list_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.load_daily_tasks()
+
+        controls = ctk.CTkFrame(parent, fg_color="transparent")
+        controls.pack(fill="x", padx=15, pady=15)
+        ctk.CTkButton(controls, text="+", width=30, command=self.add_empty_task, fg_color="transparent", border_width=1, border_color="#444").pack(side="left")
+        
+        # Кнопка ПАНІКА (прозора)
+        self.btn_panic = ctk.CTkButton(controls, text="Не натискай >", command=self.kill_all_processes,
+                                       fg_color="transparent", border_width=1, border_color="#444", 
+                                       text_color="#666", hover_color="#222", width=110, height=28)
+        self.btn_panic.pack(side="right")
+
+    def load_daily_tasks(self):
+        for w in self.daily_list_frame.winfo_children():
+            w.destroy()
+        default = ["- [ ] Quantum", "- [ ] Rolls", "- [ ] xRocket", "- [ ] Lootly"]
+        lines = []
+        if os.path.exists(self.daily_note_path):
+            try:
+                with open(self.daily_note_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+            except:
+                pass
+        
+        if not lines:
+            lines = [l+"\n" for l in default]
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            is_checked = line.startswith("- [x]")
+            text = line.replace("- [ ] ", "").replace("- [x] ", "").replace("- [] ", "")
+            TaskItem(self.daily_list_frame, text, is_checked, self.save_daily_tasks, self.delete_task_item).pack(fill="x", pady=2)
+
+    def save_daily_tasks(self):
+        content = ""
+        for w in self.daily_list_frame.winfo_children():
+            if isinstance(w, TaskItem):
+                c, t = w.get_data()
+                content += f"- [{'x' if c else ' '}] {t}\n"
+        try:
+            with open(self.daily_note_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except:
+            pass
+
+    def add_empty_task(self):
+        TaskItem(self.daily_list_frame, "", False, self.save_daily_tasks, self.delete_task_item).pack(fill="x", pady=2)
+        self.save_daily_tasks()
+    
+    def delete_task_item(self, item):
+        item.destroy()
+        self.save_daily_tasks()
+
+    def save_daily_title(self, e):
+        try:
+            with open(self.daily_title_path, "w", encoding="utf-8") as f:
+                f.write(self.entry_daily_title.get())
+        except:
+            pass
+
+    def kill_all_processes(self):
+        Engine.kill_all_telegrams()
+        log("STOPPED ALL")
+
+    def setup_accounts_ui(self, parent):
+        panel = ctk.CTkFrame(parent, fg_color=COLOR_BG_BLACK, border_width=2, border_color=COLOR_ACCENT, corner_radius=15)
+        panel.pack(fill="both", expand=True, padx=10, pady=10)
+        header = ctk.CTkFrame(panel, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=15)
+        ctk.CTkLabel(header, text="Ваші профілі", font=("Segoe UI", 22, "bold"), text_color="white").pack(side="left")
+        btn_box = ctk.CTkFrame(header, fg_color="transparent")
+        btn_box.pack(side="right")
+        ctk.CTkButton(btn_box, text="Керування", width=100, fg_color="transparent", border_width=1, border_color="#555", hover_color="#333", command=self.show_overview).pack(side="left", padx=5)
+        ctk.CTkButton(btn_box, text="Мої акаунти", width=100, fg_color=COLOR_ACCENT, hover_color="#7b00cc").pack(side="left", padx=5)
+        search_frame = ctk.CTkFrame(panel, fg_color="transparent")
+        search_frame.pack(fill="x", padx=20, pady=(0, 10))
+        self.entry_search = ctk.CTkEntry(search_frame, placeholder_text="Пошук...", fg_color="#1a1a1a", border_color="#333", text_color="white")
+        self.entry_search.pack(fill="x", ipady=5)
+        self.entry_search.bind("<KeyRelease>", self.refresh_accounts_list)
+        self.scroll_accounts = ctk.CTkScrollableFrame(panel, fg_color="transparent")
+        self.scroll_accounts.pack(fill="both", expand=True, padx=5, pady=5)
+
+    def show_overview(self):
+        self.page_accounts.pack_forget()
+        self.page_overview.pack(fill="both", expand=True)
+
+    def show_accounts(self):
+        self.page_overview.pack_forget()
+        self.page_accounts.pack(fill="both", expand=True)
+        self.refresh_accounts_list()
+    
+    def save_new_project_inline(self, name, link):
+        if not name or not link:
+            return False
+        try:
+            self.projects[name] = parse_link_local(link)
+            self.dm.save_projects(self.projects)
+            self.combo_project.configure(values=list(self.projects.keys()))
+            self.project_var.set(name)
+            self.add_log_entry(f"Додано: {name}")
+            return True
+        except:
+            return False
+
+    def refresh_accounts_list(self, e=None):
+        for w in self.scroll_accounts.winfo_children():
+            w.destroy()
+        self.account_widgets = {}
+        query = self.entry_search.get().lower()
+        base_dir = self.config.get("accounts_path", os.getcwd())
+        found = []
+        try:
+            for item in os.listdir(base_dir):
+                if os.path.isdir(os.path.join(base_dir, item)):
+                    match = re.match(r"TG (\d+)", item, re.IGNORECASE)
+                    if match: 
+                        acc_id = int(match.group(1))
+                        if not query or query in str(acc_id):
+                            found.append(acc_id)
+        except:
+            pass
+        found.sort()
+        if not found:
+            ctk.CTkLabel(self.scroll_accounts, text="Нічого не знайдено", text_color="gray").pack(pady=20)
+        for acc_id in found:
+            is_run = acc_id in self.running_single_pids
+            card = AccountCard(self.scroll_accounts, acc_id, self.notes.get(str(acc_id), ""), is_run, self.toggle_account_state, self.save_note_callback, self.binder)
+            card.pack(fill="x", pady=5)
+            self.account_widgets[acc_id] = card
+
+    def toggle_account_state(self, acc_id):
+        if acc_id in self.running_single_pids:
+            try:
+                psutil.Process(self.running_single_pids[acc_id]).terminate()
+            except:
+                pass
+            del self.running_single_pids[acc_id]
+            if acc_id in self.account_widgets:
+                self.account_widgets[acc_id].update_visuals(False)
+        else:
+            pid = Engine.launch_single(acc_id, self.config.get("accounts_path", os.getcwd()))
+            if pid:
+                self.running_single_pids[acc_id] = pid
+                if acc_id in self.account_widgets:
+                    self.account_widgets[acc_id].update_visuals(True)
+
+    def save_note_callback(self, acc_id, text):
+        self.notes[str(acc_id)] = text
+        self.dm.save_notes(self.notes)
+
+    def add_log_entry(self, text):
+        ctk.CTkLabel(self.scroll_logs, text=f"• {text}", anchor="w", text_color="#ddd", font=("Segoe UI", 12)).pack(fill="x", pady=2)
+    
+    def start_process(self):
+        p = self.project_var.get()
+        if p == "Оберіть зі списку":
+            return
+        try:
+            s, e = int(self.entry_start.get()), int(self.entry_end.get())
+        except:
+            return
+        self.selected_params = self.projects[p]
+        self.target_link = build_link(self.selected_params)
+        self.profiles_queue = list(range(s, e+1))
+        if self.check_mix.get():
+            random.shuffle(self.profiles_queue)
+        self.total_profiles_count = len(self.profiles_queue)
+        self.processed_global_count = 0
+        self.btn_launch.pack_forget()
+        self.progress_bar.pack(fill="x", pady=20)
+        self.add_log_entry(f"Запуск {p} ({s}-{e})")
+        self.process_batch()
+
+    def process_batch(self):
+        if not self.profiles_queue:
+            self.progress_bar.pack_forget()
+            self.btn_launch.pack(fill="x", padx=20, pady=20)
+            return
+        bs = int(self.config.get("batch_size", 10))
+        batch = self.profiles_queue[:bs]
+        self.profiles_queue = self.profiles_queue[bs:]
+        threading.Thread(target=self._launch_thread, args=(batch, self.config.get("accounts_path", os.getcwd())), daemon=True).start()
+
+    def _launch_thread(self, batch, base_dir):
+        for j in batch:
+            if self.batch_stop_event.is_set():
+                return
+            path = os.path.join(base_dir, f"TG {j}", "Telegram.exe")
+            if not os.path.isfile(path):
+                continue
+            try:
+                c1=[path]
+                if self.selected_params.get('appType'):
+                    c1.append("-startintray")
+                subprocess.Popen(c1)
+                Engine.start_renaming_loop(j, base_dir)
+                self.processed_global_count += 1
+                self.chart.draw(int((self.processed_global_count/self.total_profiles_count)*100))
+            except:
+                pass
+
+    def check_process_status_loop(self):
+        dead = [aid for aid, pid in self.running_single_pids.items() if not psutil.pid_exists(pid)]
+        for aid in dead:
+            del self.running_single_pids[aid]
+            if aid in self.account_widgets:
+                self.account_widgets[aid].update_visuals(False)
+        self.after(2000, self.check_process_status_loop)
+
+    def update_stats(self):
+        t, l = len(self.account_widgets) or 1, len(self.running_single_pids)
+        self.chart.draw(int((l/t)*100))
+        self.lbl_stat_live.configure(text=f"{int((l/t)*100)}% Живих")
+        self.lbl_stat_ban.configure(text=f"| Активних: {l}")
+        self.after(3000, self.update_stats)

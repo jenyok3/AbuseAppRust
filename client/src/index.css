@@ -1,0 +1,171 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Dark Theme Base */
+  --background: 0 0% 0%;       /* Black */
+  --foreground: 210 40% 98%;   /* White-ish */
+  
+  /* Surface Colors */
+  --card: 0 0% 2%;             /* Almost Black */
+  --card-foreground: 210 40% 98%;
+  
+  --popover: 0 0% 3%;
+  --popover-foreground: 210 40% 98%;
+  
+  /* Brand Colors - Purple Cyber */
+  --primary: 277 100% 50%;     /* #9d00ff */
+  --primary-foreground: 210 40% 98%;
+  
+  --secondary: 277 50% 15%;    /* Dark Purple */
+  --secondary-foreground: 210 40% 98%;
+  
+  --muted: 0 0% 9%;
+  --muted-foreground: 215 20% 65%;
+  
+  --accent: 277 80% 60%;
+  --accent-foreground: 210 40% 98%;
+  
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 0 0% 12%;
+  --input: 0 0% 12%;
+  --ring: 277 100% 50%;
+  
+  --radius: 0.75rem;
+}
+
+@layer base {
+  /* Remove number input spinners */
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type=number] {
+    -moz-appearance: textfield;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply font-bold tracking-tight;
+  }
+  
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 20px rgba(157, 0, 255, 0.5);
+  }
+  
+  .border-glow {
+    box-shadow: 0 0 10px rgba(157, 0, 255, 0.2), inset 0 0 10px rgba(157, 0, 255, 0.1);
+  }
+  
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-md border border-white/5;
+  }
+  
+  .neon-border {
+    @apply border border-primary/50 shadow-[0_0_15px_-3px_rgba(157,0,255,0.3)];
+  }
+
+  /* Custom Checkbox from Uiverse.io */
+  .checkbox-container {
+    @apply cursor-pointer inline-flex items-center justify-center;
+  }
+
+  .checkbox-container input {
+    @apply hidden;
+  }
+
+  .checkbox-container svg {
+    @apply overflow-visible;
+  }
+
+  .checkbox-path {
+    fill: none;
+    stroke: hsl(var(--primary));
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke-dasharray 0.5s ease, stroke-dashoffset 0.5s ease;
+    stroke-dasharray: 241 9999999;
+    stroke-dashoffset: 0;
+  }
+
+  .checkbox-container input:checked ~ svg .checkbox-path {
+    stroke-dasharray: 70.5096664428711 9999999;
+    stroke-dashoffset: -262.2723388671875;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-black;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors;
+}
+
+/* Electron Window Dragging */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Fix for DailyTasksPanel input focus */
+.daily-tasks-input:focus,
+.daily-tasks-input:focus-visible {
+  outline: none !important;
+  background-color: hsl(var(--background) / 0.6) !important;
+  box-shadow: none !important;
+}
+
+/* Black Title Bar for Electron */
+.title-bar {
+  position: fixed;
+  top: 0;
+  left: 80px; /* Start after sidebar */
+  right: 0;
+  height: 32px;
+  background: #000000;
+  -webkit-app-region: drag;
+  z-index: 999998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.title-bar-content {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-family: var(--font-body);
+  pointer-events: none;
+}

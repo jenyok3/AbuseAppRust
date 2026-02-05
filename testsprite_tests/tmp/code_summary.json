@@ -1,0 +1,151 @@
+{
+  "project_name": "AbuseApp Desktop",
+  "version": "1.0.0",
+  "description": "Account Farm Management Dashboard",
+  "tech_stack": {
+    "framework": {
+      "frontend": "React 18.3.1 with TypeScript",
+      "backend": "Express.js with TypeScript",
+      "desktop": "Electron 40.0.0"
+    },
+    "ui_library": {
+      "components": "Radix UI (comprehensive component library)",
+      "styling": "Tailwind CSS 3.4.17",
+      "animations": "Framer Motion 11.18.2",
+      "icons": "Lucide React 0.453.0"
+    },
+    "state_management": {
+      "server_state": "@tanstack/react-query 5.60.5",
+      "form_handling": "react-hook-form 7.55.0 with @hookform/resolvers",
+      "validation": "zod 3.24.2"
+    },
+    "database": {
+      "orm": "Drizzle ORM 0.39.3",
+      "database": "better-sqlite3 12.6.2",
+      "migrations": "drizzle-kit 0.31.8"
+    },
+    "routing": {
+      "client_router": "wouter 3.3.5",
+      "api_routing": "Express routes"
+    },
+    "build_tools": {
+      "bundler": "Vite 7.3.0",
+      "transpiler": "TypeScript 5.6.3",
+      "electron_builder": "electron-builder 26.4.0"
+    }
+  },
+  "project_structure": {
+    "frontend": {
+      "pages": [
+        "Dashboard.tsx - Main dashboard page",
+        "Settings.tsx - Application settings page",
+        "Accounts.tsx - Account management page", 
+        "Chrome.tsx - Chrome automation page",
+        "not-found.tsx - 404 error page"
+      ],
+      "components": {
+        "ui/": "Radix UI component library",
+        "Sidebar.tsx": "Navigation sidebar component",
+        "WindowControls.tsx": "Electron window controls"
+      },
+      "hooks": {
+        "use-toast.ts": "Toast notification hook",
+        "use-sidebar.ts": "Sidebar state management"
+      }
+    },
+    "backend": {
+      "server/": {
+        "index.ts": "Express server entry point",
+        "routes.ts": "API route definitions",
+        "db.ts": "Database connection and setup",
+        "storage.ts": "File storage utilities",
+        "static.ts": "Static file serving",
+        "vite.ts": "Vite development server setup"
+      }
+    },
+    "shared": {
+      "routes.ts": "Shared API route definitions",
+      "schema.ts": "Database schema definitions"
+    }
+  },
+  "features": {
+    "core_functionality": {
+      "account_farming": "Multi-platform account management",
+      "telegram_automation": "Telegram bot automation",
+      "chrome_automation": "Chrome browser automation",
+      "mass_launch": "Concurrent account launching"
+    },
+    "ui_features": {
+      "responsive_design": "Mobile, tablet, desktop layouts",
+      "dark_theme": "Dark mode with purple accents",
+      "glass_morphism": "Modern glass effects with backdrop blur",
+      "custom_window_controls": "Electron window frame customization",
+      "sidebar_navigation": "Collapsible sidebar with state persistence"
+    },
+    "data_management": {
+      "sqlite_database": "Local data storage",
+      "real_time_updates": "WebSocket connections",
+      "session_management": "User session handling",
+      "file_storage": "Local file system integration"
+    },
+    "development_features": {
+      "hot_reload": "Development with HMR",
+      "type_safety": "Full TypeScript coverage",
+      "api_documentation": "Auto-generated API docs",
+      "error_handling": "Comprehensive error management"
+    }
+  },
+  "architecture_patterns": {
+    "frontend": {
+      "component_based": "React functional components with hooks",
+      "server_state": "React Query for API state management",
+      "form_validation": "Zod schema validation",
+      "styling": "Utility-first CSS with Tailwind"
+    },
+    "backend": {
+      "rest_api": "Express RESTful API design",
+      "orm_pattern": "Drizzle ORM with SQLite",
+      "middleware": "Express middleware for logging and validation",
+      "error_handling": "Centralized error management"
+    },
+    "desktop": {
+      "electron_main": "Main process for window management",
+      "preload_scripts": "Secure context bridge",
+      "ipc_communication": "Inter-process communication"
+    }
+  },
+  "key_dependencies": {
+    "ui_components": [
+      "@radix-ui/react-* (20+ components)",
+      "lucide-react",
+      "framer-motion"
+    ],
+    "data_fetching": [
+      "@tanstack/react-query",
+      "wouter",
+      "express"
+    ],
+    "database": [
+      "drizzle-orm",
+      "better-sqlite3",
+      "drizzle-kit"
+    ],
+    "development": [
+      "vite",
+      "typescript",
+      "electron-builder"
+    ]
+  },
+  "testing_capabilities": {
+    "frontend_testing": "React component testing",
+    "api_testing": "Express endpoint testing", 
+    "integration_testing": "End-to-end workflow testing",
+    "electron_testing": "Desktop app functionality testing"
+  },
+  "deployment": {
+    "development": "npm run dev (development server)",
+    "production": "npm run build && npm run start",
+    "desktop_build": "npm run electron-build",
+    "distribution": "electron-builder for cross-platform builds"
+  }
+}

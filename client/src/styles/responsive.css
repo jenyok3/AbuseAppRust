@@ -1,0 +1,129 @@
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Smooth transitions for layout changes */
+.layout-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Widget hover effects */
+.widget-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.widget-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+/* Responsive container */
+.responsive-container {
+  container-type: inline-size;
+  overflow-x: hidden; /* Prevent horizontal scroll */
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Container queries for fine-tuned responsive behavior */
+@container (max-width: 768px) {
+  .widget-responsive {
+    min-height: 300px !important;
+  }
+}
+
+@container (max-width: 1024px) {
+  .widget-responsive {
+    min-height: 350px !important;
+  }
+}
+
+/* Prevent content overflow */
+.no-overflow {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Flex wrap utilities */
+.flex-wrap-responsive {
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
+/* Minimum widget sizes */
+.min-widget-size {
+  min-width: 280px;
+  min-height: 300px;
+}
+
+/* Smooth scroll behavior */
+.smooth-scroll {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden; /* Prevent horizontal scroll */
+}
+
+/* Grid fallback for older browsers */
+@supports not (display: grid) {
+  .grid-fallback {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+/* Prevent horizontal overflow in all containers */
+.prevent-overflow {
+  overflow-x: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Ensure all grid containers don't overflow */
+.grid-container {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Fix for potential overflow from padding */
+.main-container {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 768px) {
+  .main-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .main-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
