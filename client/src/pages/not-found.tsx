@@ -20,7 +20,7 @@ export default function NotFound() {
           <div className="mt-8">
             <Link href="/">
               <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold">
-                Return to Dashboard
+                Return to Telegram
               </Button>
             </Link>
           </div>

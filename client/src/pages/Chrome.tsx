@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Activity, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow } from "lucide-react";
+import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Activity, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -246,7 +246,7 @@ export default function Chrome() {
                 </div>
               </motion.div>
 
-              {/* Stats and Recent Actions row - Back to 2 columns */}
+              {/* Stats and Recent Actions row - 2 columns */}
               <div className="grid grid-cols-2 gap-6">
                 {/* Widget 1 - Останні дії */}
                 <motion.div
@@ -254,16 +254,14 @@ export default function Chrome() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.6 }}
                   className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-4 h-56 flex flex-col"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock className="text-primary w-5 h-5 shrink-0" />
+                    <h3 className="text-xl font-display font-bold text-white">Останні дії</h3>
                   </div>
-                  <div className="space-y-2 w-32 shrink-0">
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wider font-bold">Кінець</Label>
-                    <Input 
-                      type="number" 
-                      placeholder="100" 
-                      value={endRange}
-                      onChange={(e) => setEndRange(e.target.value)}
-                      className="bg-black/50 border-white/10 h-10 rounded-xl focus:border-primary/50 text-white font-mono" 
-                    />
+                  
+                  <ScrollArea className="flex-1">
+                    <div className="space-y-2">
                       <div className="flex gap-3 text-sm font-mono group hover:bg-white/5 p-2 rounded-lg transition-colors">
                         <span className="text-primary/70 shrink-0">[10:42:27]</span>
                         <span className="text-muted-foreground group-hover:text-white transition-colors break-all">
@@ -320,6 +318,9 @@ export default function Chrome() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </motion.div>
+              </div>
             </div>
 
             {/* Right column - Calendar and Daily Tasks stacked */}
@@ -372,6 +373,11 @@ export default function Chrome() {
                       transition={{ 
                         duration: 0.3,
                         ease: "easeInOut"
+                      }}
+                    />
+                  ))
+                ) : (
+                  <motion.div
                     key="empty-state"
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}

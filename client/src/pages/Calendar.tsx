@@ -3,31 +3,7 @@ import { useState, useEffect } from 'react';
 import InteractiveCalendar from "@/components/ui/visualize-booking";
 
 export default function Calendar() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  useEffect(() => {
-    // Listen for sidebar state changes
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem('sidebar-collapsed');
-      setSidebarCollapsed(saved === 'true');
-    };
-
-    // Initial check
-    handleStorageChange();
-
-    // Listen for storage changes
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also check periodically for local changes
-    const interval = setInterval(handleStorageChange, 100);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
-
-  const marginLeft = sidebarCollapsed ? '16px' : '32px';
+  const marginLeft = '32px'; // Fixed margin, independent of sidebar state
 
   return (
     <div className="flex-1 overflow-hidden relative font-body text-white">
@@ -39,10 +15,6 @@ export default function Calendar() {
         <div className="h-8"></div>
         
         <div className="flex items-center gap-3 mb-8 transition-all duration-300" style={{ marginLeft, marginTop: 'calc(50vh - 385px)' }}>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Календар</h1>
-            <p className="text-muted-foreground">Управління зустрічами та подіями</p>
-          </div>
         </div>
 
         <div className="transition-all duration-300" style={{ marginLeft }}>

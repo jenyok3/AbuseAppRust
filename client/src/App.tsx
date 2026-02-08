@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Sidebar } from "@/components/Sidebar";
-import Dashboard from "@/pages/Dashboard";
+import Telegram from "@/pages/Telegram";
 import TestSimple from "./test-simple";
 import Accounts from "@/pages/Accounts";
 import Settings from "@/pages/Settings";
@@ -17,10 +17,10 @@ import { GlobalWindowControls } from "@/components/GlobalWindowControls";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={Telegram} />
       <Route path="/test" component={TestSimple} />
       <Route path="/accounts" component={Accounts} />
-      <Route path="/projects" component={Dashboard} />
+      <Route path="/projects" component={Telegram} />
       <Route path="/chrome" component={Chrome} />
       <Route path="/calendar" component={Calendar} />
       <Route path="/settings" component={Settings} />
@@ -37,7 +37,7 @@ function App() {
           <div className="flex h-screen w-full overflow-hidden bg-black">
             {/* Black Title Bar */}
             <div className="title-bar">
-              <div className="title-bar-content">AbuseApp</div>
+              <div className="title-bar-content"></div>
             </div>
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-2">
