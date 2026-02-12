@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { format, isToday, isSameYear } from "date-fns";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { GhostIcon } from "@/components/ui/ghost-icon";
+import { AccountStatsWidget } from "@/components/AccountStatsWidget";
 
 export default function Telegram() {
   const { toast } = useToast();
@@ -273,53 +274,7 @@ export default function Telegram() {
                 </motion.div>
 
                 {/* Widget 2 - Статистика акаунтів */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: 0.5 }}
-                  className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-4 h-56 flex flex-col"
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <Activity className="text-primary w-5 h-5 shrink-0" />
-                    <h3 className="text-xl font-display font-bold text-white">Статистика акаунтів</h3>
-                  </div>
-                  
-                  <div className="flex-1 flex">
-                    {/* Left side - Chart */}
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="w-full h-40 relative">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={[
-                                { name: "Активні", value: stats.active, color: "#22c55e" },
-                                { name: "Заблоковані", value: stats.blocked, color: "#64748b" },
-                              ]}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={30}
-                              outerRadius={50}
-                              paddingAngle={2}
-                              dataKey="value"
-                              stroke="none"
-                            >
-                              {[
-                                { name: "Активні", value: stats.active, color: "#22c55e" },
-                                { name: "Заблоковані", value: stats.blocked, color: "#64748b" },
-                              ].map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                          </PieChart>
-                        </ResponsiveContainer>
-                        
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <span className="text-3xl font-bold font-mono text-white">{stats.total}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
+                <AccountStatsWidget />
               </div>
             </div>
 
