@@ -11,8 +11,48 @@ pub fn run() {
       update_account_status,
       get_recent_actions,
       get_daily_tasks,
-      update_daily_task
+      update_daily_task,
+      minimize_window,
+      maximize_window,
+      close_window,
+      is_maximized
     ])
+    .setup(|app| {
+      use tauri::Manager;
+      let _window = app.get_webview_window("main").unwrap();
+      
+      // Add retry logic for server connection
+      std::thread::spawn(move || {
+        let mut retry_count = 0;
+        let max_retries = 10;
+        
+        while retry_count < max_retries {
+          std::thread::sleep(std::time::Duration::from_secs(2));
+          
+          // Try to connect to the dev server
+          match std::thread::spawn(|| {
+            reqwest::blocking::get("http://localhost:4000")
+          }).join() {
+            Ok(Ok(response)) => {
+              if response.status().is_success() {
+                println!("✅ Server is ready!");
+                break;
+              }
+            }
+            Ok(Err(_)) | Err(_) => {
+              retry_count += 1;
+              println!("⏳ Retry {}/{} - waiting for server...", retry_count, max_retries);
+            }
+          }
+          
+          if retry_count >= max_retries {
+            eprintln!("❌ Failed to connect to server after {} attempts", max_retries);
+          }
+        }
+      });
+      
+      Ok(())
+    })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
@@ -147,4 +187,29 @@ async fn update_daily_task(task_id: String, completed: bool) -> Result<String, S
     // TODO: Implement actual task update
     println!("Updating task {} completed to {}", task_id, completed);
     Ok("Task updated".to_string())
+}
+
+// Window control commands
+#[tauri::command]
+async fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn maximize_window(window: tauri::Window) -> Result<(), String> {
+    if window.is_maximized().unwrap_or(false) {
+        window.unmaximize().map_err(|e| e.to_string())
+    } else {
+        window.maximize().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn close_window(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn is_maximized(window: tauri::Window) -> Result<bool, String> {
+    Ok(window.is_maximized().unwrap_or(false))
 }
