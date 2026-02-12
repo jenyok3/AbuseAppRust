@@ -1,21 +1,28 @@
+import { invoke } from '@tauri-apps/api/core';
 import { Minus, Square, X } from "lucide-react";
 
 export function WindowControls() {
-  const minimizeWindow = () => {
-    if (window.electronAPI && window.electronAPI.minimizeWindow) {
-      window.electronAPI.minimizeWindow();
+  const minimizeWindow = async () => {
+    try {
+      await invoke('minimize_window');
+    } catch (error) {
+      console.error('Failed to minimize window:', error);
     }
   };
 
-  const maximizeWindow = () => {
-    if (window.electronAPI && window.electronAPI.maximizeWindow) {
-      window.electronAPI.maximizeWindow();
+  const maximizeWindow = async () => {
+    try {
+      await invoke('maximize_window');
+    } catch (error) {
+      console.error('Failed to maximize window:', error);
     }
   };
 
-  const closeWindow = () => {
-    if (window.electronAPI && window.electronAPI.closeWindow) {
-      window.electronAPI.closeWindow();
+  const closeWindow = async () => {
+    try {
+      await invoke('close_window');
+    } catch (error) {
+      console.error('Failed to close window:', error);
     }
   };
 

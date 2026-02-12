@@ -131,7 +131,7 @@
   @apply bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors;
 }
 
-/* Electron Window Dragging */
+/* Tauri Window Dragging */
 .app-drag-region {
   -webkit-app-region: drag;
 }
@@ -148,7 +148,7 @@
   box-shadow: none !important;
 }
 
-/* Black Title Bar for Electron */
+/* Black Title Bar for Tauri */
 .title-bar {
   position: fixed;
   top: 0;
