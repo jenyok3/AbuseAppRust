@@ -8,6 +8,7 @@ import { Search, ExternalLink, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { launchAccounts } from "@/lib/tauri-api";
 
 export default function Accounts() {
   const [search, setSearch] = useState("");
@@ -27,6 +28,22 @@ export default function Accounts() {
       toast({ title: "Нотатки оновлено" });
     },
   });
+
+  const handleOpenAccount = async (accountId: number) => {
+    try {
+      await launchAccounts([accountId.toString()]);
+      toast({
+        title: "Акаунт відкрито",
+        description: `Акаунт ${accountId} успішно запущено`,
+      });
+    } catch (error) {
+      toast({
+        title: "Помилка відкриття",
+        description: "Не вдалося відкрити акаунт",
+        variant: "destructive",
+      });
+    }
+  };
 
   const filteredAccounts = accounts?.filter((acc) =>
     acc.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -62,7 +79,7 @@ export default function Accounts() {
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-lg" data-testid={`text-account-name-${account.id}`}>
-                  {index + 1}
+                  {account.id}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
                   account.status === "live" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
@@ -74,9 +91,9 @@ export default function Accounts() {
               <div className="space-y-2">
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Нотатки..."
-                    className="bg-black/40 border-white/5"
-                    defaultValue={account.notes || ""}
+                    placeholder="Додати нотатки..."
+                    className="bg-black/40 border-white/5 placeholder:text-gray-500"
+                    defaultValue=""
                     onBlur={(e) => {
                       if (e.target.value !== (account.notes || "")) {
                         updateNotesMutation.mutate({ id: account.id, notes: e.target.value });
@@ -84,7 +101,13 @@ export default function Accounts() {
                     }}
                     data-testid={`input-notes-${account.id}`}
                   />
-                  <Button size="icon" variant="outline" className="border-white/10" data-testid={`button-open-${account.id}`}>
+                  <Button 
+                    size="icon" 
+                    variant="outline" 
+                    className="border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all" 
+                    data-testid={`button-open-${account.id}`}
+                    onClick={() => handleOpenAccount(account.id)}
+                  >
                     <ExternalLink className="w-4 h-4" />
                   </Button>
                 </div>

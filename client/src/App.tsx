@@ -13,6 +13,7 @@ import Chrome from "@/pages/Chrome";
 import Calendar from "@/pages/Calendar";
 import NotFound from "@/pages/not-found";
 import { GlobalWindowControls } from "@/components/GlobalWindowControls";
+import { GlobalKeyboardControls } from "@/components/GlobalKeyboardControls";
 
 function Router() {
   return (
@@ -45,6 +46,7 @@ function App() {
             </div>
           </div>
           <GlobalWindowControls />
+          <GlobalKeyboardControls />
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>

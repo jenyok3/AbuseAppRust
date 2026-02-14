@@ -9,6 +9,39 @@ export const launchAccounts = async (accountIds: string[]) => {
   return await invoke('launch_accounts', { accountIds });
 };
 
+export const launchSingleAccount = async (accountId: number, telegramFolderPath: string) => {
+  return await invoke('launch_single_account', { accountId, telegramFolderPath });
+};
+
+export const launchAccountsBatch = async (linkParams: any, startRange: number, endRange: number, telegramFolderPath: string) => {
+  return await invoke('launch_accounts_batch', { 
+    linkParams, 
+    startRange, 
+    endRange, 
+    telegramFolderPath 
+  });
+};
+
+export const getAvailableLinks = async () => {
+  return await invoke('get_available_links');
+};
+
+export const buildTelegramLink = async (params: any) => {
+  return await invoke('build_telegram_link', { params });
+};
+
+export const closeTelegramProcesses = async (pids: number[]) => {
+  return await invoke('close_telegram_processes', { pids });
+};
+
+export const closeSingleAccount = async (accountId: number) => {
+  return await invoke('close_single_account', { accountId });
+};
+
+export const getRunningTelegramProcesses = async () => {
+  return await invoke('get_running_telegram_processes');
+};
+
 export const getAccountStats = async () => {
   return await invoke('get_account_stats');
 };
@@ -43,4 +76,13 @@ export const updateDailyTask = async (taskId: string, completed: boolean) => {
 // Test function
 export const greet = async (name: string) => {
   return await invoke('greet', { name });
+};
+
+// Directory related API calls
+export const readDirectory = async (path: string) => {
+  return await invoke('read_directory', { path });
+};
+
+export const openDirectoryDialog = async () => {
+  return await invoke('open_directory_dialog');
 };
