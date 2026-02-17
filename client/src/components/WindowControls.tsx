@@ -27,16 +27,15 @@ export function WindowControls() {
   };
 
   return (
-    <div className="fixed top-1 right-4 flex gap-1 z-[999999] pointer-events-auto">
+    <div className="absolute top-1/2 right-1 -translate-y-1/2 flex gap-1 z-50 pointer-events-auto app-no-drag">
       <button
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           minimizeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-white/10 bg-black"
+        className="w-5 h-5 flex items-center justify-center rounded"
         title="Minimize"
-        style={{ zIndex: 999999 }}
       >
         <Minus className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
       </button>
@@ -46,9 +45,8 @@ export function WindowControls() {
           e.stopPropagation();
           maximizeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-white/10 bg-black"
+        className="w-5 h-5 flex items-center justify-center rounded"
         title="Maximize"
-        style={{ zIndex: 999999 }}
       >
         <Square className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
       </button>
@@ -58,9 +56,8 @@ export function WindowControls() {
           e.stopPropagation();
           closeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-white/10 bg-black"
+        className="w-5 h-5 flex items-center justify-center rounded"
         title="Close"
-        style={{ zIndex: 999999 }}
       >
         <X className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
       </button>

@@ -1144,7 +1144,7 @@ export default function Telegram() {
 
   return (
     <div 
-      className="min-h-screen bg-black text-white overflow-y-auto !bg-black" 
+      className="h-full min-h-0 bg-black text-white flex flex-col overflow-hidden" 
       style={{ backgroundColor: '#000000' }}
     >
       {/* Ambient background effects - removed for pure black background */}
@@ -1154,20 +1154,19 @@ export default function Telegram() {
         <div className="absolute bottom-0 left-1/2 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl" />
       </div> */}
 
-      <main className="relative z-10 max-w-7xl mx-auto min-h-screen pt-6 px-6 pr-6 pb-20">
+      <main className="relative z-10 w-full px-6 pb-6 telegram-content flex-1 overflow-y-auto">
         {/* Main content area */}
         <div className="flex flex-col gap-6">
           {/* Top row - Mass Launch, Stats and Recent Actions */}
-          <div className="grid grid-cols-[3.6fr_1.4fr] gap-6">
-            {/* Left column - Mass Launch, Stats and Recent Actions */}
-            <div className="flex flex-col gap-6">
+          <div className="telegram-top-grid grid gap-6">
+              {/* Left column - Mass Launch, Stats and Recent Actions */}
+              <div className="flex flex-col gap-6">
               {/* Mass Launch Panel */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.3 }}
-                className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col relative overflow-hidden group h-full w-full"
-                style={{ height: '460px' }}
+                className="telegram-mass-launch-panel bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col relative group w-full min-h-[360px] lg:min-h-[460px] overflow-hidden"
               >
                 {/* Decorative background glow */}
                 <div className="absolute -top-20 -right-20 w-64 h-64 bg-primary/20 rounded-full blur-3xl group-hover:bg-primary/30 transition-all duration-700 pointer-events-none" />
@@ -1177,7 +1176,7 @@ export default function Telegram() {
                   Масовий запуск
                 </h2>
 
-                <div className="space-y-4 flex-1">
+                <div className="space-y-4 max-w-2xl">
                   <div className="space-y-2">
                     <Label className="text-muted-foreground text-xs uppercase tracking-wider font-bold">Проєкт</Label>
                     <div className="flex items-center gap-2">
@@ -1250,8 +1249,8 @@ export default function Telegram() {
                     </div>
                   </div>
 
-                  <div className="flex gap-4">
-                    <div className="space-y-2 w-32 shrink-0">
+                  <div className="grid grid-cols-2 gap-3 max-w-[18rem]">
+                    <div className="space-y-2">
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider font-bold">Початок</Label>
                       <Input 
                         type="number" 
@@ -1271,7 +1270,7 @@ export default function Telegram() {
                         className="bg-black/50 border-white/10 h-10 rounded-xl focus:border-primary/50 text-white font-mono" 
                       />
                     </div>
-                    <div className="space-y-2 w-32 shrink-0">
+                    <div className="space-y-2">
                       <Label className="text-muted-foreground text-xs uppercase tracking-wider font-bold">Кінець</Label>
                       <Input 
                         id="end-range-input"
@@ -1291,7 +1290,6 @@ export default function Telegram() {
                         className="bg-black/50 border-white/10 h-10 rounded-xl focus:border-primary/50 text-white font-mono" 
                       />
                     </div>
-                    <div className="flex-1" />
                   </div>
 
                   <div className="flex items-center space-x-3 pt-1">
@@ -1307,7 +1305,7 @@ export default function Telegram() {
                   </div>
                 </div>
 
-                <div className="mt-6 space-y-3">
+                <div className="mt-4 lg:mt-6 space-y-3">
                   <Button 
                     onClick={launchedPids.length > 0 ? handleContinueLaunch : handleLaunch}
                     disabled={isLaunching || (launchedPids.length === 0 && (!selectedProject || !startRange || !endRange)) || (launchedPids.length > 0 && false)}
@@ -1326,7 +1324,7 @@ export default function Telegram() {
                               </motion.div>
 
               {/* Stats and Recent Actions row - 2 columns */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="telegram-secondary-widgets grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Widget 1 - Останні дії */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -1391,7 +1389,7 @@ export default function Telegram() {
             </div>
 
             {/* Right column - Calendar and Daily Tasks stacked */}
-            <div className="flex flex-col gap-6 h-[709px] min-h-0">
+            <div className="flex flex-col gap-6 min-h-0 xl:min-h-[709px]">
               {/* Calendar Widget */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}

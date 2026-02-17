@@ -40,7 +40,7 @@ export function DailyTasksPanel() {
         </span>
       </div>
 
-      <ScrollArea className="flex-1 min-h-0 -mx-2 px-2">
+      <ScrollArea className="max-h-[240px] sm:max-h-[280px] overflow-y-auto -mx-2 px-2">
         <div className="space-y-2 pb-4">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground text-sm">Loading tasks...</div>
