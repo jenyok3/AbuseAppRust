@@ -35,9 +35,13 @@ export default function ChromeTauri() {
     queryFn: getAccounts
   });
 
-  const { data: stats = { active: 0, blocked: 0, total: 0 } } = useQuery({
+  const { data: stats = { active: 0, blocked: 0, total: 0 } } = useQuery<{
+    active: number;
+    blocked: number;
+    total: number;
+  }>({
     queryKey: ['account-stats'],
-    queryFn: getAccountStats
+    queryFn: () => getAccountStats()
   });
 
   const { data: recentActions = [] } = useQuery({

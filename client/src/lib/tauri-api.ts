@@ -1,8 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
 
+type AccountStats = {
+  total: number;
+  running: number;
+  active: number;
+  blocked: number;
+  unknown?: number;
+  telegramFolderPath?: string;
+  reason?: string;
+};
+
 // Account related API calls
 export const getAccounts = async () => {
-  return await invoke('get_accounts');
+  return await invoke<any[]>('get_accounts');
 };
 
 export const launchAccounts = async (accountIds: string[]) => {
@@ -39,11 +49,18 @@ export const closeSingleAccount = async (accountId: number) => {
 };
 
 export const getRunningTelegramProcesses = async () => {
-  return await invoke('get_running_telegram_processes');
+  return await invoke<Array<{ pid: number; name: string; path: string }>>('get_running_telegram_processes');
 };
 
-export const getAccountStats = async () => {
-  return await invoke('get_account_stats');
+export const getAccountStats = async (
+  telegramFolderPathOrQueryContext?: string | { queryKey?: unknown[] }
+) => {
+  const telegramFolderPath =
+    typeof telegramFolderPathOrQueryContext === 'string'
+      ? telegramFolderPathOrQueryContext
+      : undefined;
+
+  return await invoke<AccountStats>('get_account_stats', { telegramFolderPath });
 };
 
 export const updateAccountStatus = async (accountId: string, status: string) => {
@@ -61,12 +78,12 @@ export const saveSettings = async (settings: any) => {
 
 // Actions related API calls
 export const getRecentActions = async () => {
-  return await invoke('get_recent_actions');
+  return await invoke<any[]>('get_recent_actions');
 };
 
 // Tasks related API calls
 export const getDailyTasks = async () => {
-  return await invoke('get_daily_tasks');
+  return await invoke<any[]>('get_daily_tasks');
 };
 
 export const updateDailyTask = async (taskId: string, completed: boolean) => {

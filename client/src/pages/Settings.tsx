@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Save, FolderOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { openDirectoryDialog } from "@/lib/tauri-api";
+import { openDirectoryDialog, saveSettings as saveSettingsTauri } from "@/lib/tauri-api";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -38,7 +38,7 @@ export default function Settings() {
     };
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Save settings to localStorage
     const settings = {
       telegramThreads,
@@ -47,6 +47,13 @@ export default function Settings() {
       chromeFolderPath
     };
     localStorage.setItem('appSettings', JSON.stringify(settings));
+
+    try {
+      // Keep native (Rust) settings in sync for backend stats and commands
+      await saveSettingsTauri(settings);
+    } catch (error) {
+      console.error("Failed to persist settings to Tauri backend:", error);
+    }
     
     // Dispatch custom event to notify other components
     window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: settings }));

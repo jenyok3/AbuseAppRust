@@ -150,14 +150,13 @@
 
 /* Black Title Bar for Tauri */
 .title-bar {
-  position: fixed;
-  top: 0;
-  left: 80px; /* Start after sidebar */
-  right: 0;
+  position: relative;
+  width: 100%;
   height: 32px;
   background: #000000;
   -webkit-app-region: drag;
-  z-index: 999998;
+  z-index: 20;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;

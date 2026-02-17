@@ -269,7 +269,7 @@ export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps
         <div className="mt-3 h-px bg-white/20" />
 
         {/* Footer Actions */}
-        <div className="mt-3 flex items-center justify-between space-x-4">
+        <div className="mt-5 flex items-center justify-between space-x-4">
            <button className="flex items-center space-x-2 text-sm font-medium text-white/70 transition-colors hover:text-white">
              <Edit2 className="h-4 w-4" />
              <span>Add a note...</span>

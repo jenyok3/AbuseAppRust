@@ -59,7 +59,7 @@ export function Sidebar() {
 
   return (
     <div className={cn(
-      "h-screen border-r border-white/5 bg-black/95 flex flex-col shrink-0 transition-all duration-300 relative",
+      "h-screen border-r border-white/5 bg-black/95 flex flex-col shrink-0 relative will-change-[width] transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
       isCollapsed ? "w-16" : "w-20 lg:w-64"
     )}>
       {/* Toggle Button */}
@@ -69,7 +69,7 @@ export function Sidebar() {
           "absolute -right-3 top-1/2 -translate-y-1/2 z-50",
           "w-6 h-6 bg-black/90 border border-white/10 rounded-full",
           "flex items-center justify-center text-white/60 hover:text-white/80",
-          "transition-all duration-300 hover:bg-black/95 hover:border-white/20",
+          "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-black/95 hover:border-white/20",
           "backdrop-blur-sm"
         )}
       >
@@ -82,7 +82,7 @@ export function Sidebar() {
 
       {/* Header / Logo Area */}
       <div className={cn(
-        "h-20 flex items-center justify-center border-b border-white/5 transition-all duration-300",
+        "h-20 flex items-center justify-center border-b border-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
         isCollapsed ? "lg:justify-center" : "lg:justify-start lg:px-6"
       )}>
         <div className="w-14 h-14 rounded-xl overflow-hidden">
@@ -101,22 +101,22 @@ export function Sidebar() {
           </div>
         </div>
         <span className={cn(
-          "ml-3 font-display font-bold text-lg tracking-wide transition-all duration-300",
-          isCollapsed ? "hidden" : "hidden lg:block"
+          "hidden lg:inline-block ml-3 font-display font-bold text-lg tracking-wide whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
+          isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[200px] lg:ml-3"
         )}>
           Abuse<span className="text-primary">App</span>
         </span>
       </div>
 
       {/* Farm Type Switcher */}
-      <div className={cn("space-y-2 transition-all duration-300", isCollapsed ? "px-2 py-2" : "p-4")}>
+      <div className={cn("space-y-2 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]", isCollapsed ? "px-2 py-2" : "p-4")}>
         <Button 
           variant="ghost" 
           onClick={handleTelegramClick}
           className={cn(
-            "w-full h-12 rounded-xl transition-all relative overflow-hidden",
+            "w-full h-12 rounded-xl transition-colors duration-200 relative overflow-hidden",
             isCollapsed ? "justify-center" : "justify-center lg:justify-start",
-            "gap-3",
+            isCollapsed ? "gap-0" : "gap-3",
             shouldHighlightFarmType && type === "telegram"
               ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20" 
               : "text-muted-foreground hover:bg-white/5 hover:text-white"
@@ -126,8 +126,8 @@ export function Sidebar() {
             <Send className="w-5 h-5" />
           </div>
           <span className={cn(
-            "font-medium transition-all duration-300",
-            isCollapsed ? "hidden" : "hidden lg:block"
+            "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
+            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
           )}>
             Telegram
           </span>
@@ -140,9 +140,9 @@ export function Sidebar() {
           variant="ghost" 
           onClick={handleChromeClick}
           className={cn(
-            "w-full h-12 rounded-xl transition-all relative overflow-hidden",
+            "w-full h-12 rounded-xl transition-colors duration-200 relative overflow-hidden",
             isCollapsed ? "justify-center" : "justify-center lg:justify-start",
-            "gap-3",
+            isCollapsed ? "gap-0" : "gap-3",
             shouldHighlightFarmType && type === "chrome"
               ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20" 
               : "text-muted-foreground hover:bg-white/5 hover:text-white"
@@ -152,8 +152,8 @@ export function Sidebar() {
             <Chrome className="w-5 h-5" />
           </div>
           <span className={cn(
-            "font-medium transition-all duration-300",
-            isCollapsed ? "hidden" : "hidden lg:block"
+            "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
+            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
           )}>
             Chrome
           </span>
@@ -164,7 +164,7 @@ export function Sidebar() {
       </div>
 
       <div className={cn(
-        "bg-white/5 transition-all duration-300",
+        "bg-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
         isCollapsed ? "mx-2" : "mx-4"
       )}>
         <div className="h-px" />
@@ -172,12 +172,13 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className={cn(
-        "flex-1 space-y-2 transition-all duration-300",
+        "flex-1 space-y-2 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
         isCollapsed ? "px-2 py-2" : "p-4"
       )}>
         {navItems.map((item) => (
           <Link key={item.href} href={item.href} className={cn(
-            "flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden",
+            "flex items-center px-3 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden",
+            isCollapsed ? "gap-0" : "gap-3",
             isCollapsed ? "justify-center" : "justify-center lg:justify-start",
             location === item.href 
               ? "text-white bg-white/5 shadow-inner" 
@@ -190,8 +191,8 @@ export function Sidebar() {
               )} />
             </div>
             <span className={cn(
-              "font-medium transition-all duration-300",
-              isCollapsed ? "hidden" : "hidden lg:block"
+              "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
+              isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
             )}>
               {item.label}
             </span>
@@ -205,26 +206,27 @@ export function Sidebar() {
 
       {/* Footer / User Profile */}
       <div className={cn(
-        "border-t border-white/5 transition-all duration-300",
+        "border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
         isCollapsed ? "p-2" : "p-4"
       )}>
         <button className={cn(
-          "flex items-center gap-3 w-full p-2 rounded-xl hover:bg-white/5 transition-colors group",
+          "flex items-center w-full p-2 rounded-xl hover:bg-white/5 transition-colors group",
+          isCollapsed ? "gap-0" : "gap-3",
           isCollapsed ? "justify-center" : "justify-center lg:justify-start"
         )}>
           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 border border-white/10">
             {/* Avatar placeholder - could add user icon here */}
           </div>
           <div className={cn(
-            "flex flex-col items-start overflow-hidden transition-all duration-300",
-            isCollapsed ? "hidden" : "hidden lg:flex"
+            "hidden lg:flex flex-col items-start overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
+            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[220px] lg:ml-0"
           )}>
             <span className="text-sm font-medium text-white truncate w-full">Administrator</span>
             <span className="text-xs text-muted-foreground">admin@abuse.app</span>
           </div>
           <div className={cn(
-            "flex items-center justify-center w-4 h-4 ml-auto transition-all duration-300",
-            isCollapsed ? "hidden" : "hidden lg:block"
+            "hidden lg:flex items-center justify-center w-4 h-4 ml-auto transition-[opacity,max-width,margin] duration-300 ease-out",
+            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-4 lg:ml-auto"
           )}>
             <LogOut className="w-4 h-4 text-muted-foreground group-hover:text-red-400" />
           </div>

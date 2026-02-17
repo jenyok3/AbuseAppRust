@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use sysinfo::System;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -18,6 +22,132 @@ pub struct TelegramLink {
     pub ref_link: String,
     #[serde(default)]
     pub mixed: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AppSettings {
+    #[serde(rename = "telegramThreads", default)]
+    telegram_threads: String,
+    #[serde(rename = "telegramFolderPath", default)]
+    telegram_folder_path: String,
+    #[serde(rename = "chromeThreads", default)]
+    chrome_threads: String,
+    #[serde(rename = "chromeFolderPath", default)]
+    chrome_folder_path: String,
+}
+
+fn settings_file_path() -> PathBuf {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        return PathBuf::from(appdata)
+            .join("AbuseApp")
+            .join("settings.json");
+    }
+
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".abuseapp-settings.json")
+}
+
+fn load_settings_from_disk() -> AppSettings {
+    let path = settings_file_path();
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return AppSettings::default(),
+    };
+
+    serde_json::from_str::<AppSettings>(&content).unwrap_or_default()
+}
+
+fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
+    let path = settings_file_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create settings directory: {}", e))?;
+    }
+
+    let body = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    fs::write(path, body).map_err(|e| format!("Failed to write settings: {}", e))
+}
+
+fn is_likely_logged_out(tdata_path: &Path) -> bool {
+    let entries = match fs::read_dir(tdata_path) {
+        Ok(entries) => entries,
+        Err(_) => return true,
+    };
+
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().to_lowercase();
+        names.push(file_name);
+    }
+
+    if names.is_empty() {
+        return true;
+    }
+
+    let ban_markers = [
+        "deleted",
+        "banned",
+        "suspended",
+        "restricted",
+        "unauthorized",
+        "logout",
+        "blocked",
+    ];
+
+    if names
+        .iter()
+        .any(|name| ban_markers.iter().any(|marker| name.contains(marker)))
+    {
+        return true;
+    }
+
+    let has_core = names.iter().any(|name| {
+        name.contains("session")
+            || name.contains("user")
+            || name.contains("key")
+            || name.contains("map")
+            || name.contains("setting")
+    });
+
+    if !has_core {
+        return true;
+    }
+
+    names.len() <= 2
+}
+
+fn list_running_telegram_processes() -> Vec<(u32, String, String)> {
+    let mut system = System::new_all();
+    system.refresh_processes();
+
+    system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            let name = process.name().to_string();
+            let path = process
+                .exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let name_lower = name.to_lowercase();
+            let path_lower = path.to_lowercase();
+            let is_telegram = name_lower.contains("telegram")
+                || path_lower.ends_with("\\telegram.exe")
+                || path_lower.ends_with("/telegram")
+                || path_lower.contains("\\telegram desktop\\");
+
+            if !is_telegram {
+                return None;
+            }
+
+            let pid_num = pid.to_string().parse::<u32>().unwrap_or(0);
+            Some((pid_num, name, path))
+        })
+        .collect()
 }
 
 pub fn run() {
@@ -46,8 +176,7 @@ pub fn run() {
       open_directory_dialog,
       close_telegram_processes,
       close_single_account,
-      get_running_telegram_processes,
-      register_global_hotkey
+      get_running_telegram_processes
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -427,36 +556,149 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
 
 #[tauri::command]
 async fn get_settings() -> Result<serde_json::Value, String> {
-    // Mock settings
-    let settings = serde_json::json!({
-        "telegramFolderPath": "",
-        "chromeFolderPath": "",
-        "threadCount": 4
-    });
-    Ok(settings)
+    let settings = load_settings_from_disk();
+    serde_json::to_value(settings).map_err(|e| format!("Failed to build settings response: {}", e))
 }
 
 #[tauri::command]
 async fn save_settings(settings: serde_json::Value) -> Result<(), String> {
-    // In a real app, you would save to a config file or database
-    println!("Settings saved: {}", settings);
-    Ok(())
+    let mut current = load_settings_from_disk();
+
+    if let Some(v) = settings.get("telegramThreads").and_then(|v| v.as_str()) {
+        current.telegram_threads = v.to_string();
+    }
+    if let Some(v) = settings.get("telegramFolderPath").and_then(|v| v.as_str()) {
+        current.telegram_folder_path = v.to_string();
+    }
+    if let Some(v) = settings.get("chromeThreads").and_then(|v| v.as_str()) {
+        current.chrome_threads = v.to_string();
+    }
+    if let Some(v) = settings.get("chromeFolderPath").and_then(|v| v.as_str()) {
+        current.chrome_folder_path = v.to_string();
+    }
+
+    save_settings_to_disk(&current)
 }
 
 #[tauri::command]
-async fn get_account_stats() -> Result<serde_json::Value, String> {
-    // Mock stats
-    let stats = serde_json::json!({
-        "total":100,
-        "active": 80,
-        "blocked": 20,
-        "recentActivity": [
-            "Account 1 launched successfully",
-            "Account 2 launched successfully",
-            "Account 3 launched successfully"
-        ]
-    });
-    Ok(stats)
+async fn get_account_stats(telegram_folder_path: Option<String>) -> Result<serde_json::Value, String> {
+    let settings = load_settings_from_disk();
+    let root = telegram_folder_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| settings.telegram_folder_path.trim().to_string());
+
+    if root.is_empty() {
+        return Ok(serde_json::json!({
+            "total": 0,
+            "running": 0,
+            "active": 0,
+            "blocked": 0,
+            "unknown": 0,
+            "reason": "telegram_folder_not_configured"
+        }));
+    }
+
+    let root_path = PathBuf::from(&root);
+    if !root_path.exists() || !root_path.is_dir() {
+        return Ok(serde_json::json!({
+            "total": 0,
+            "running": 0,
+            "active": 0,
+            "blocked": 0,
+            "unknown": 0,
+            "reason": "telegram_folder_not_found",
+            "telegramFolderPath": root
+        }));
+    }
+
+    let mut accounts: Vec<(String, PathBuf)> = Vec::new();
+    let entries = fs::read_dir(&root_path).map_err(|e| format!("Failed to read accounts directory: {}", e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let has_tdata = path.join("tdata").is_dir();
+        if has_tdata {
+            accounts.push((name, path));
+        }
+    }
+
+    let total = accounts.len() as i64;
+    if total == 0 {
+        return Ok(serde_json::json!({
+            "total": 0,
+            "running": 0,
+            "active": 0,
+            "blocked": 0,
+            "unknown": 0,
+            "telegramFolderPath": root
+        }));
+    }
+
+    let running_processes = list_running_telegram_processes();
+    let process_paths: Vec<String> = running_processes
+        .iter()
+        .map(|(_, _, path)| path.to_lowercase().replace('\\', "/"))
+        .collect();
+    let mut used_process_indexes: HashSet<usize> = HashSet::new();
+
+    let mut running: i64 = 0;
+    let mut blocked: i64 = 0;
+
+    for (name, account_path) in &accounts {
+        let account_path_lower = account_path
+            .to_string_lossy()
+            .to_lowercase()
+            .replace('\\', "/");
+        let account_name_lower = name.to_lowercase();
+        let account_name_segment = format!("/{}/", account_name_lower);
+
+        let mut matched_process_index: Option<usize> = None;
+        for (index, process_path) in process_paths.iter().enumerate() {
+            if used_process_indexes.contains(&index) {
+                continue;
+            }
+
+            let path_matches = !account_path_lower.is_empty()
+                && (process_path == &account_path_lower
+                    || process_path.starts_with(&(account_path_lower.clone() + "/")));
+            let name_matches = !account_name_lower.is_empty()
+                && process_path.contains(&account_name_segment);
+
+            if path_matches || name_matches {
+                matched_process_index = Some(index);
+                break;
+            }
+        }
+
+        if let Some(index) = matched_process_index {
+            used_process_indexes.insert(index);
+            running += 1;
+            continue;
+        }
+
+        let tdata_path = account_path.join("tdata");
+        if is_likely_logged_out(&tdata_path) {
+            blocked += 1;
+        }
+    }
+
+    let unknown = (total - running - blocked).max(0);
+
+    Ok(serde_json::json!({
+        "total": total,
+        "running": running,
+        "active": running,
+        "blocked": blocked,
+        "unknown": unknown,
+        "telegramFolderPath": root
+    }))
 }
 
 #[tauri::command]
@@ -522,27 +764,50 @@ async fn update_daily_task(task_id: String, status: String) -> Result<(), String
 }
 
 #[tauri::command]
-async fn minimize_window(_app: tauri::AppHandle) -> Result<(), String> {
-    println!("Window minimized");
-    Ok(())
+async fn minimize_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    window.minimize().map_err(|e| format!("Failed to minimize window: {}", e))
 }
 
 #[tauri::command]
-async fn maximize_window(_app: tauri::AppHandle) -> Result<(), String> {
-    println!("Window maximized");
-    Ok(())
+async fn maximize_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    let is_maximized = window
+        .is_maximized()
+        .map_err(|e| format!("Failed to read maximize state: {}", e))?;
+
+    if is_maximized {
+        window
+            .unmaximize()
+            .map_err(|e| format!("Failed to unmaximize window: {}", e))
+    } else {
+        window
+            .maximize()
+            .map_err(|e| format!("Failed to maximize window: {}", e))
+    }
 }
 
 #[tauri::command]
-async fn close_window(_app: tauri::AppHandle) -> Result<(), String> {
-    println!("Window closed");
-    Ok(())
+async fn close_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    window.close().map_err(|e| format!("Failed to close window: {}", e))
 }
 
 #[tauri::command]
-async fn is_maximized() -> Result<bool, String> {
-    // Mock maximized state
-    Ok(false)
+async fn is_maximized(app: tauri::AppHandle) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    window
+        .is_maximized()
+        .map_err(|e| format!("Failed to read maximize state: {}", e))
 }
 
 #[tauri::command]
@@ -691,6 +956,10 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut closed_count = 0;
+        let mut found_processes = Vec::new();
+        
+        println!("[LOG] Tasklist output for account {}:", account_id);
+        println!("[LOG] Full output: {}", stdout);
         
         for line in stdout.lines() {
             if line.contains("Telegram.exe") {
@@ -698,7 +967,20 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
                 if parts.len() >= 2 {
                     let pid_str = parts[1].trim_matches('"');
                     if let Ok(pid) = pid_str.parse::<u32>() {
-                        // Try to kill the process
+                        found_processes.push(pid);
+                        println!("[LOG] Found Telegram process with PID: {}", pid);
+                        
+                        // Try to get more details about this process
+                        let detail_output = Command::new("tasklist")
+                            .args(["/FI", "PID eq", &pid.to_string(), "/FO", "CSV"])
+                            .output();
+                        
+                        if let Ok(detail) = detail_output {
+                            let detail_stdout = String::from_utf8_lossy(&detail.stdout);
+                            println!("[LOG] Process details for PID {}: {}", pid, detail_stdout);
+                        }
+                        
+                        // Try to kill process
                         match Command::new("taskkill")
                             .args(["/F", "/PID", &pid.to_string()])
                             .output()
@@ -715,6 +997,8 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
                 }
             }
         }
+        
+        println!("[LOG] Found {} Telegram processes, closed {} of them", found_processes.len(), closed_count);
         
         if closed_count > 0 {
             Ok(format!("Закрито {} процесів Telegram", closed_count))
@@ -737,109 +1021,17 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_running_telegram_processes() -> Result<Vec<String>, String> {
-    use std::process::Command;
-    
-    println!("[LOG] Отримання списку запущених процесів Telegram");
-    
-    #[cfg(target_os = "windows")]
-    {
-        // Use PowerShell to get detailed process information
-        let output = Command::new("powershell")
-            .args([
-                "-Command", 
-                "Get-Process -Name Telegram | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"
-            ])
-            .output()
-            .map_err(|e| format!("Failed to get process details: {}", e))?;
+async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, String> {
+    let processes = list_running_telegram_processes()
+        .into_iter()
+        .map(|(pid, name, path)| {
+            serde_json::json!({
+                "pid": pid,
+                "name": name,
+                "path": path
+            })
+        })
+        .collect();
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut pids = Vec::new();
-        
-        println!("[LOG] PowerShell output:\n{}", stdout);
-        
-        // Parse CSV output from PowerShell
-        let mut lines: Vec<&str> = stdout.lines().collect();
-        let total_lines = lines.len();
-        
-        // Skip header and empty lines
-        lines.retain(|line| !line.is_empty() && !line.contains("Id,ProcessName"));
-        
-        for line in lines {
-            let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() >= 2 {
-                let pid_str = parts[0].trim_matches('"');
-                
-                if let Ok(pid) = pid_str.parse::<u32>() {
-                    // Now get the command line for this specific PID
-                    let cmdline_output = Command::new("wmic")
-                        .args(["process", "where", &format!("ProcessId={}", pid), "get", "CommandLine", "/format:list"])
-                        .output();
-                    
-                    if let Ok(cmdline_result) = cmdline_output {
-                        let cmdline_stdout = String::from_utf8_lossy(&cmdline_result.stdout);
-                        
-                        if let Some(cmdline_line) = cmdline_stdout.lines().find(|line| line.starts_with("CommandLine=")) {
-                            let command_line = cmdline_line.split('=').nth(1).unwrap_or("").trim_matches('"').trim();
-                            
-                            println!("[LOG] PID {}, Command: {}", pid, command_line.chars().take(100).collect::<String>());
-                            
-                            // Check if this process is from our farm folder
-                            let is_farm_process = command_line.contains("\\TG ") || 
-                                               command_line.contains("\\TG\\") ||
-                                               command_line.contains("TG 1\\Telegram.exe") ||
-                                               command_line.contains("TG 2\\Telegram.exe") ||
-                                               command_line.contains("TG 3\\Telegram.exe") ||
-                                               command_line.contains("TG 4\\Telegram.exe") ||
-                                               command_line.contains("TG 5\\Telegram.exe") ||
-                                               command_line.contains("TG 6\\Telegram.exe") ||
-                                               command_line.contains("TG 7\\Telegram.exe") ||
-                                               command_line.contains("TG 8\\Telegram.exe") ||
-                                               command_line.contains("TG 9\\Telegram.exe") ||
-                                               command_line.contains("TG 1") && command_line.contains("Telegram.exe");
-                            
-                            if is_farm_process {
-                                pids.push(pid.to_string());
-                                println!("[LOG] ✅ Знайдено процес ферми: PID {}, Path: {}", pid, command_line);
-                            } else {
-                                println!("[LOG] ❌ Пропущено процес не з ферми: PID {}, Path: {}", pid, command_line);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        println!("[LOG] Total Telegram processes found: {}, Farm processes: {}", total_lines, pids.len());
-        
-        Ok(pids)
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = Command::new("pgrep")
-            .args(["-f", "Telegram"])
-            .output()
-            .map_err(|e| format!("Failed to get processes: {}", e))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let pids: Vec<String> = stdout.lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| line.trim().to_string())
-            .collect();
-            
-        for pid in &pids {
-            println!("[LOG] Знайдено процес Telegram: PID {}", pid);
-        }
-        
-        Ok(pids)
-    }
-}
-
-#[tauri::command]
-async fn register_global_hotkey(_window: tauri::Window) -> Result<String, String> {
-    // This would require additional Tauri plugins for global hotkeys
-    // For now, we'll use a simpler approach with window-level events
-    println!("Global hotkey registration requested");
-    Ok("Global hotkey registered".to_string())
+    Ok(processes)
 }

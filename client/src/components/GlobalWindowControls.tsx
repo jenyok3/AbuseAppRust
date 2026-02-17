@@ -27,9 +27,6 @@ export function GlobalWindowControls() {
     <>
       {/* Window Controls - on all pages */}
       <WindowControls />
-      
-      {/* Draggable header area - on all pages, excluding right side where controls are */}
-      <div className="fixed top-0 left-0 right-32 h-8 app-draggable z-10 pointer-events-auto" />
     </>
   );
 }

@@ -36,12 +36,12 @@ function App() {
       <TooltipProvider>
         <SidebarProvider>
           <div className="flex h-screen w-full overflow-hidden bg-black">
-            {/* Black Title Bar */}
-            <div className="title-bar">
-              <div className="title-bar-content"></div>
-            </div>
             <Sidebar />
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-2">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              {/* Black Title Bar */}
+              <div className="title-bar app-draggable">
+                <div className="title-bar-content"></div>
+              </div>
               <Router />
             </div>
           </div>
