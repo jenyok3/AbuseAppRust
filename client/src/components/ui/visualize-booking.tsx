@@ -269,7 +269,7 @@ const DAYS: DayType[] = [
         date: 'Ср, 2 лист',
         time: '10:00 - 11:00',
         title: 'Обговорення дизайну',
-        participants: ['Аліса Джонсон', 'Марк Лі'],
+        participants: ['Аліса Джонсон', 'Марк ˳'],
         location: 'Zoom',
       },
       {
@@ -309,7 +309,7 @@ const DAYS: DayType[] = [
         date: 'Ср, 8 лист',
         time: '14:00 - 15:00',
         title: 'Стратегічна зустріч',
-        participants: ['Роберт Грін', 'Девід Лі'],
+        participants: ['Роберт Грін', 'Девід ˳'],
         location: 'Google Meet',
       },
       {
@@ -362,7 +362,7 @@ const DAYS: DayType[] = [
         date: 'Пт, 17 лист',
         time: '9:00 - 10:00',
         title: 'Щоденний стендап',
-        participants: ['Девід Лі', 'Софія Янг'],
+        participants: ['Девід ˳', 'Софія Янг'],
         location: 'Microsoft Teams',
       },
       {
@@ -383,7 +383,7 @@ const DAYS: DayType[] = [
         date: 'Пт, 17 лист',
         time: '16:00 - 17:00',
         title: 'Сесія відгуків',
-        participants: ['Марк Лі', 'Аліса Джонсон'],
+        participants: ['Марк ˳', 'Аліса Джонсон'],
         location: 'Google Meet',
       },
     ],
@@ -398,7 +398,7 @@ const DAYS: DayType[] = [
         date: 'Вт, 21 лист',
         time: '11:00 - 12:00',
         title: 'Запуск продукту',
-        participants: ['Аліса Джонсон', 'Марк Лі'],
+        participants: ['Аліса Джонсон', 'Марк ˳'],
         location: 'Zoom',
       },
       {
@@ -412,7 +412,7 @@ const DAYS: DayType[] = [
         date: 'Вт, 21 лист',
         time: '15:00 - 16:00',
         title: 'Дизайн ітерація',
-        participants: ['Девід Лі', 'Софія Янг'],
+        participants: ['Девід ˳', 'Софія Янг'],
         location: 'Очно',
       },
       {
@@ -455,7 +455,7 @@ const DAYS: DayType[] = [
         date: 'Чт, 30 лист',
         time: '11:00 - 12:00',
         title: 'Брейншторм',
-        participants: ['Девід Лі', 'Софія Янг'],
+        participants: ['Девід ˳', 'Софія Янг'],
         location: 'Zoom',
       },
     ],

@@ -88,6 +88,10 @@
     @apply border border-primary/50 shadow-[0_0_15px_-3px_rgba(157,0,255,0.3)];
   }
 
+  .ease-smooth-sidebar {
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   /* Custom Checkbox from Uiverse.io */
   .checkbox-container {
     @apply cursor-pointer inline-flex items-center justify-center;
@@ -130,6 +134,16 @@
 
 ::-webkit-scrollbar-thumb {
   @apply bg-zinc-800 rounded-full hover:bg-zinc-700 transition-colors;
+}
+
+/* Hide native scrollbars inside Radix ScrollArea viewport to avoid double bars */
+[data-radix-scroll-area-viewport] {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+
+[data-radix-scroll-area-viewport]::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 /* Tauri Window Dragging */
@@ -195,6 +209,13 @@
 
 .telegram-secondary-widgets {
   grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+@media (min-width: 1101px) {
+  .telegram-right-column {
+    min-height: 709px;
+    max-height: 709px;
+  }
 }
 
 @media (max-width: 1100px) {

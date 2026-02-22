@@ -8,27 +8,50 @@ export function GlobalKeyboardControls() {
     // Only handle F6 on Telegram page
     if (location !== '/') return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for F6 key (both with and without modifiers)
-      if (event.key === 'F6' || (event.key === '6' && event.shiftKey)) {
-        event.preventDefault();
-        event.stopPropagation();
-        
-        console.log('F6 pressed globally');
-        
-        // Dispatch custom event that Telegram component can listen to
-        window.dispatchEvent(new CustomEvent('f6-pressed', { 
-          bubbles: true, 
-          cancelable: true 
-        }));
+    const dispatchF6 = () => {
+      console.log('F6 pressed globally');
+      window.dispatchEvent(new CustomEvent('f6-pressed', {
+        bubbles: true,
+        cancelable: true
+      }));
+    };
+
+    let localListenerAttached = false;
+    let cleanupGlobalShortcut: (() => void) | null = null;
+
+    const attachLocalListener = () => {
+      if (localListenerAttached) return;
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'F6' || (event.key === '6' && event.shiftKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+          dispatchF6();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown, true);
+      window.addEventListener('keydown', handleKeyDown, true);
+      localListenerAttached = true;
+      cleanupGlobalShortcut = () => {
+        document.removeEventListener('keydown', handleKeyDown, true);
+        window.removeEventListener('keydown', handleKeyDown, true);
+      };
+    };
+
+    const registerGlobalShortcut = async () => {
+      try {
+        const mod = await import('@tauri-apps/plugin-global-shortcut');
+        await mod.register('F6', dispatchF6);
+        cleanupGlobalShortcut = () => {
+          mod.unregister('F6').catch(() => {});
+        };
+      } catch (error) {
+        console.warn('Global shortcut unavailable, using local listener.', error);
+        attachLocalListener();
       }
     };
 
-    // Add event listener to document with capture phase for better reliability
-    // Also add to window for additional coverage
-    document.addEventListener('keydown', handleKeyDown, true);
-    window.addEventListener('keydown', handleKeyDown, true);
-    
+    registerGlobalShortcut();
+
     // Keep window focused when possible
     const handleVisibilityChange = () => {
       if (!document.hidden) {
@@ -39,8 +62,9 @@ export function GlobalKeyboardControls() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
-      document.removeEventListener('keydown', handleKeyDown, true);
-      window.removeEventListener('keydown', handleKeyDown, true);
+      if (cleanupGlobalShortcut) {
+        cleanupGlobalShortcut();
+      }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [location]);

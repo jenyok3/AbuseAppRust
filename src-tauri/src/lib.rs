@@ -1,8 +1,10 @@
-use std::collections::HashSet;
+﻿use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
+use tauri::Emitter;
 use tauri::Manager;
+use tauri::{LogicalPosition, LogicalSize, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,37 @@ struct AppSettings {
     chrome_threads: String,
     #[serde(rename = "chromeFolderPath", default)]
     chrome_folder_path: String,
+    #[serde(rename = "window", default)]
+    window: WindowState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WindowState {
+    #[serde(default)]
+    width: f64,
+    #[serde(default)]
+    height: f64,
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+    #[serde(default)]
+    maximized: bool,
+    #[serde(default)]
+    valid: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            width: 0.0,
+            height: 0.0,
+            x: 0.0,
+            y: 0.0,
+            maximized: false,
+            valid: false,
+        }
+    }
 }
 
 fn settings_file_path() -> PathBuf {
@@ -69,6 +102,62 @@ fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
     fs::write(path, body).map_err(|e| format!("Failed to write settings: {}", e))
+}
+
+fn capture_window_state(window: &tauri::WebviewWindow) -> WindowState {
+    let mut state = WindowState::default();
+    let scale = window.scale_factor().unwrap_or(1.0);
+    if let Ok(size) = window.outer_size() {
+        let logical = size.to_logical::<f64>(scale);
+        state.width = logical.width;
+        state.height = logical.height;
+    }
+    if let Ok(pos) = window.outer_position() {
+        let logical = pos.to_logical::<f64>(scale);
+        state.x = logical.x;
+        state.y = logical.y;
+    }
+    if let Ok(maximized) = window.is_maximized() {
+        state.maximized = maximized;
+    }
+    state.valid = state.width > 0.0 && state.height > 0.0;
+    state
+}
+
+fn is_window_state_visible(window: &tauri::WebviewWindow, state: &WindowState) -> bool {
+    if !state.valid {
+        return false;
+    }
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let width = (state.width * scale).round() as i32;
+    let height = (state.height * scale).round() as i32;
+    if width < 200 || height < 200 {
+        return false;
+    }
+
+    let wx1 = (state.x * scale).round() as i32;
+    let wy1 = (state.y * scale).round() as i32;
+    let wx2 = wx1 + width;
+    let wy2 = wy1 + height;
+
+    if let Ok(monitors) = window.available_monitors() {
+        for monitor in monitors {
+            let pos = monitor.position();
+            let size = monitor.size();
+            let mx1 = pos.x;
+            let my1 = pos.y;
+            let mx2 = pos.x + size.width as i32;
+            let my2 = pos.y + size.height as i32;
+
+            let overlaps = wx2 > mx1 && wx1 < mx2 && wy2 > my1 && wy1 < my2;
+            if overlaps {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    true
 }
 
 fn is_likely_logged_out(tdata_path: &Path) -> bool {
@@ -153,12 +242,51 @@ fn list_running_telegram_processes() -> Vec<(u32, String, String)> {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--autostart".into()]),
+    ))
+    .setup(|app| {
+        if let Some(window) = app.get_webview_window("main") {
+            let is_autostart = std::env::args().any(|arg| arg == "--autostart");
+            let settings = load_settings_from_disk();
+            if is_window_state_visible(&window, &settings.window) {
+                if settings.window.maximized {
+                    let _ = window.maximize();
+                } else {
+                    let _ = window.set_size(LogicalSize::new(settings.window.width, settings.window.height));
+                    let _ = window.set_position(LogicalPosition::new(settings.window.x, settings.window.y));
+                }
+            } else {
+                let _ = window.center();
+            }
+            if !is_autostart {
+                let _ = window.show();
+            }
+
+            let window_for_event = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let window_state = capture_window_state(&window_for_event);
+                    let mut settings = load_settings_from_disk();
+                    settings.window = window_state;
+                    let _ = save_settings_to_disk(&settings);
+                    let _ = window_for_event.hide();
+                }
+            });
+        }
+        Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
       greet,
       get_accounts,
       launch_accounts,
       launch_single_account,
       launch_accounts_batch,
+      launch_accounts_for_profiles,
       get_available_links,
       build_telegram_link,
       get_settings,
@@ -170,7 +298,9 @@ pub fn run() {
       update_daily_task,
       minimize_window,
       maximize_window,
+      show_window,
       close_window,
+      quit_app,
       is_maximized,
       read_directory,
       open_directory_dialog,
@@ -220,7 +350,7 @@ async fn get_accounts() -> Result<Vec<serde_json::Value>, String> {
 #[tauri::command]
 async fn launch_accounts(account_ids: Vec<String>) -> Result<String, String> {
     // Mock implementation
-    Ok(format!("Запущено {} акаунтів", account_ids.len()))
+    Ok(format!("Р—Р°РїСѓС‰РµРЅРѕ {} Р°РєР°СѓРЅС‚С–РІ", account_ids.len()))
 }
 
 #[tauri::command]
@@ -229,8 +359,7 @@ async fn launch_single_account(
     telegram_folder_path: String,
 ) -> Result<u32, String> {
     use std::process::Command;
-    
-    println!("[LOG] Запуск окремого акаунта #{}", account_id);
+    println!("[LOG] Р—Р°РїСѓСЃРє Р°РєР°СѓРЅС‚Р° TG {}", account_id);
     
     let telegram_exe_path = Path::new(&telegram_folder_path)
         .join(format!("TG {}", account_id))
@@ -241,17 +370,16 @@ async fn launch_single_account(
             .spawn()
         {
             Ok(child) => {
-                println!("[LOG] Акаунт {} успішно запущено, PID: {}", account_id, child.id());
+                println!("[LOG] TG {} Р·Р°РїСѓС‰РµРЅРѕ Р±РµР· РїР°СЂР°РјРµС‚СЂС–РІ", account_id);
                 Ok(child.id())
             }
             Err(e) => {
-                println!("[LOG] Помилка запуску акаунта {}: {}", account_id, e);
-                Err(format!("Не вдалося запустити акаунт {}: {}", account_id, e))
+                println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ Р°РєР°СѓРЅС‚Р° {}: {}", account_id, e);
+                Err(format!("РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РїСѓСЃС‚РёС‚Рё Р°РєР°СѓРЅС‚ {}: {}", account_id, e))
             }
         }
     } else {
-        println!("[LOG] Файл не знайдено: {}", telegram_exe_path.display());
-        Err(format!("Файл Telegram.exe не знайдено: {}", telegram_exe_path.display()))
+        Err(format!("Р¤Р°Р№Р» Telegram.exe РЅРµ Р·РЅР°Р№РґРµРЅРѕ: {}", telegram_exe_path.display()))
     }
 }
 
@@ -265,15 +393,15 @@ async fn launch_accounts_batch(
     use std::process::Command;
     use rand::seq::SliceRandom;
     
-    // Логування початку операції
-    println!("[LOG] Початок пакетного запуску акаунтів");
-    println!("[LOG] Діапазон: {}-{}", start_range, end_range);
-    println!("[LOG] Параметри посилання: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}", 
+    // Р›РѕРіСѓРІР°РЅРЅСЏ РїРѕС‡Р°С‚РєСѓ РѕРїРµСЂР°С†С–С—
+    println!("[LOG] РџРѕС‡Р°С‚РѕРє РїР°РєРµС‚РЅРѕРіРѕ Р·Р°РїСѓСЃРєСѓ Р°РєР°СѓРЅС‚С–РІ");
+    println!("[LOG] Р”С–Р°РїР°Р·РѕРЅ: {}-{}", start_range, end_range);
+    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
         link_params.api_id, link_params.app_name, link_params.app_type, link_params.ref_link, link_params.mixed);
     
     // Build the link
     let link = build_telegram_link(link_params.clone()).await?;
-    println!("[LOG] Згенеровано посилання: {}", link);
+    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ (Р·РіРµРЅРµСЂРѕРІР°РЅРѕ): {}", link);
     
     // Create account range
     let mut profiles: Vec<i32> = (start_range..=end_range).collect();
@@ -282,9 +410,9 @@ async fn launch_accounts_batch(
     if link_params.mixed == "yes" {
         let mut rng = rand::thread_rng();
         profiles.shuffle(&mut rng);
-        println!("[LOG] Профілі випадково перемішані.");
+        println!("[LOG] РџСЂРѕС„С–Р»С– РїРµСЂРµРјС–С€Р°РЅС–.");
     } else {
-        println!("[LOG] Профілі не перемішані.");
+        println!("[LOG] РџСЂРѕС„С–Р»С– РЅРµ РїРµСЂРµРјС–С€Р°РЅС–");
     }
     
     let mut launched_pids = Vec::new();
@@ -292,11 +420,10 @@ async fn launch_accounts_batch(
     
     for (i, &profile_num) in profiles.iter().enumerate() {
         if i > 0 && i % batch_size == 0 {
-            println!("[LOG] Запущено {} акаунтів. Натисніть F6, щоб продовжити...", batch_size);
+            println!("[LOG] Р”РѕСЃСЏРіРЅСѓС‚Рѕ Р»С–РјС–С‚ РїР°РєРµС‚Р°, РїРѕРІРµСЂС‚Р°С”РјРѕ РїРѕС‚РѕС‡РЅРёР№ СЃРїРёСЃРѕРє PID");
             return Ok(launched_pids);
         }
-        
-        println!("[LOG] Запуск акаунта #{}", profile_num);
+        println!("[LOG] TG {} Р·Р°РїСѓСЃРєР°С”С‚СЊСЃСЏ", profile_num);
         
         let telegram_exe_path = Path::new(&telegram_folder_path)
             .join(format!("TG {}", profile_num))
@@ -314,11 +441,11 @@ async fn launch_accounts_batch(
             {
                 Ok(_child) => {
                     launched_pids.push(_child.id());
-                    println!("[LOG] TG {} запущено без параметрів.", profile_num);
+                    println!("[LOG] TG {} Р·Р°РїСѓС‰РµРЅРѕ Р±РµР· РїР°СЂР°РјРµС‚СЂС–РІ", profile_num);
                     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] Помилка запуску процесу {}: {}", telegram_exe_path.display(), e);
+                    println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ {}: {}", telegram_exe_path.display(), e);
                 }
             }
             
@@ -329,184 +456,177 @@ async fn launch_accounts_batch(
                 vec![link.as_str()]
             };
             
-            println!("[LOG] Запускаємо Telegram з аргументами: {:?}", args);
-            
             match Command::new(&telegram_exe_path)
                 .args(args)
                 .spawn()
             {
                 Ok(_child) => {
                     // Don't add to launched_pids since this is the same profile
-                    println!("TG {} завантажено з параметрами {}.", profile_num, link);
+                    println!("TG {} Р·Р°РїСѓС‰РµРЅРѕ Р· РїР°СЂР°РјРµС‚СЂР°РјРё {}.", profile_num, link);
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 }
                 Err(e) => {
-                    println!("Помилка запуску процесу з параметрами {}: {}", telegram_exe_path.display(), e);
+                    println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ Р· РїР°СЂР°РјРµС‚СЂР°РјРё РґР»СЏ TG {}: {}", profile_num, e);
                 }
             }
         } else {
-            println!("Файл не знайдено: {}", telegram_exe_path.display());
+            println!("Р¤Р°Р№Р» РЅРµ Р·РЅР°Р№РґРµРЅРѕ: {}", telegram_exe_path.display());
         }
     }
     
     Ok(launched_pids)
 }
 
-#[tauri::command]
-async fn get_available_links() -> Result<Vec<(String, serde_json::Value)>, String> {
-    // Логування початку операції
-    println!("[LOG] Початок отримання доступних посилань");
-    
-    // Запускаємо Python-скрипт для отримання реальних посилань
-    use std::process::Command;
-    
-    let output = Command::new("python")
-        .arg("-c")
-        .arg(r#"
-import json
-import sys
-import os
-from datetime import datetime
-
-# Отримуємо посилання з вашого скрипту
-links = {
-    "GetBonus": {
-        "appName": "getbonus",
-        "appType": "app",
-        "refLink": "",
-        "mixed": "yes"
-    },
-    "Lootly": {
-        "appName": "LootlyGameBot",
-        "appType": "start",
-        "refLink": "",
-        "mixed": "yes"
-    },
-    "Twist": {
-        "appName": "twistappbot",
-        "appType": "app",
-        "refLink": "",
-        "mixed": "yes"
-    },
-    "Rolls": {
-        "appName": "rollsgame_bot",
-        "appType": "app",
-        "refLink": "ref_xEmnaKUVPi",
-        "mixed": "yes"
-    },
-    "Qzino": {
-        "appName": "qzino_official_bot",
-        "appType": "app",
-        "refLink": "",
-        "mixed": "yes"
-    },
-    "Quantum": {
-        "appName": "Quantum_Machines_bot",
-        "appType": "start",
-        "refLink": "",
-        "mixed": "yes"
-    },
-    "VIRUS": {
-        "appName": "virus_play_bot",
-        "appType": "app",
-        "refLink": "",
-        "mixed": "yes"
-    }
+#[derive(Debug, Clone, Serialize)]
+struct LaunchProgressPayload {
+    batch_index: usize,
+    batch_total: usize,
+    profile: i32,
 }
 
-# Виводимо результат у JSON для Tauri
-print(json.dumps(links))
-"#)
-        .output()
-        .map_err(|e| format!("Failed to execute Python script: {}", e))?;
+#[tauri::command]
+async fn launch_accounts_for_profiles(
+    app: tauri::AppHandle,
+    link_params: TelegramLink,
+    profile_ids: Vec<i32>,
+    telegram_folder_path: String,
+) -> Result<Vec<u32>, String> {
+    use std::process::Command;
 
-    match output.status.success() {
-        true => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            println!("[LOG] Python-скрипт успішно виконано");
-            
-            // Парсимо JSON відповідь
-            match serde_json::from_str::<serde_json::Value>(&stdout) {
-                Ok(links_data) => {
-                    let mut result = Vec::new();
-                    for (name, data) in links_data.as_object().unwrap() {
-                        result.push((name.to_string(), serde_json::json!(data)));
-                    }
-                    println!("[LOG] Отримано {} доступних посилань", result.len());
-                    Ok(result)
+    println!("[LOG] Р СџР С•РЎвЂЎР В°РЎвЂљР С•Р С” Р С—Р В°Р С”Р ВµРЎвЂљР Р…Р С•Р С–Р С• Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ Р В°Р С”Р В°РЎС“Р Р…РЎвЂљРЎвЂ“Р Р† (custom list)");
+    println!("[LOG] Р СџРЎР‚Р С•РЎвЂћРЎвЂ“Р В»РЎвЂ“: {:?}", profile_ids);
+    println!(
+        "[LOG] Р СџР В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р С‘ Р С—Р С•РЎРѓР С‘Р В»Р В°Р Р…Р Р…РЎРЏ: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
+        link_params.api_id, link_params.app_name, link_params.app_type, link_params.ref_link, link_params.mixed
+    );
+
+    let link = build_telegram_link(link_params.clone()).await?;
+    println!("[LOG] Р СџР В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р С‘ Р С—Р С•РЎРѓР С‘Р В»Р В°Р Р…Р Р…РЎРЏ (Р В·Р С–Р ВµР Р…Р ВµРЎР‚Р С•Р Р†Р В°Р Р…Р С•): {}", link);
+
+    let mut launched_pids = Vec::new();
+
+    for (index, &profile_num) in profile_ids.iter().enumerate() {
+        println!("[LOG] TG {} Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°РЎвЂќРЎвЂљРЎРЉРЎРѓРЎРЏ", profile_num);
+
+        let telegram_exe_path = Path::new(&telegram_folder_path)
+            .join(format!("TG {}", profile_num))
+            .join("Telegram.exe");
+
+        if telegram_exe_path.exists() {
+            match Command::new(&telegram_exe_path)
+                .args(if !link_params.app_type.is_empty() {
+                    vec!["-startintray"]
+                } else {
+                    vec![]
+                })
+                .spawn()
+            {
+                Ok(_child) => {
+                    launched_pids.push(_child.id());
+                    println!("[LOG] TG {} Р В·Р В°Р С—РЎС“РЎвЂ°Р ВµР Р…Р С• Р В±Р ВµР В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚РЎвЂ“Р Р†", profile_num);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] Помилка парсингу JSON: {}", e);
-                    // Повертаємо тестові дані у разі помилки
-                    Ok(vec![
-                        ("GetBonus".to_string(), serde_json::json!({
-                            "name": "GetBonus",
-                            "app_name": "getbonus",
-                            "app_type": "app",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        })),
-                        ("Lootly".to_string(), serde_json::json!({
-                            "name": "Lootly",
-                            "app_name": "LootlyGameBot",
-                            "app_type": "start",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        })),
-                        ("Twist".to_string(), serde_json::json!({
-                            "name": "Twist",
-                            "app_name": "twistappbot",
-                            "app_type": "app",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        })),
-                        ("Rolls".to_string(), serde_json::json!({
-                            "name": "Rolls",
-                            "app_name": "rollsgame_bot",
-                            "app_type": "app",
-                            "ref_link": "ref_xEmnaKUVPi",
-                            "mixed": "yes"
-                        })),
-                        ("Qzino".to_string(), serde_json::json!({
-                            "name": "Qzino",
-                            "app_name": "qzino_official_bot",
-                            "app_type": "app",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        })),
-                        ("Quantum".to_string(), serde_json::json!({
-                            "name": "Quantum Machines",
-                            "app_name": "Quantum_Machines_bot",
-                            "app_type": "start",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        })),
-                        ("VIRUS".to_string(), serde_json::json!({
-                            "name": "VIRUS",
-                            "app_name": "virus_play_bot",
-                            "app_type": "app",
-                            "ref_link": "",
-                            "mixed": "yes"
-                        }))
-                    ])
+                    println!("[LOG] Р СџР С•Р СР С‘Р В»Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ {}: {}", telegram_exe_path.display(), e);
                 }
             }
+
+            let args = if !link_params.app_type.is_empty() {
+                vec![link.as_str(), "-startintray"]
+            } else {
+                vec![link.as_str()]
+            };
+
+            match Command::new(&telegram_exe_path)
+                .args(args)
+                .spawn()
+            {
+                Ok(_child) => {
+                    println!("TG {} Р В·Р В°Р С—РЎС“РЎвЂ°Р ВµР Р…Р С• Р В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р В°Р СР С‘ {}.", profile_num, link);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                }
+                Err(e) => {
+                    println!("[LOG] Р СџР С•Р СР С‘Р В»Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ Р В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р В°Р СР С‘ Р Т‘Р В»РЎРЏ TG {}: {}", profile_num, e);
+                }
+            }
+        } else {
+            println!("Р В¤Р В°Р в„–Р В» Р Р…Р Вµ Р В·Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С•: {}", telegram_exe_path.display());
         }
-        false => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            println!("[LOG] Помилка Python-скрипту: {}", stderr);
-            Err(format!("Failed to get links: {}", stderr))
-        }
+        let _ = app.emit("telegram-launch-progress", LaunchProgressPayload {
+            batch_index: index + 1,
+            batch_total: profile_ids.len(),
+            profile: profile_num,
+        });
+
     }
+
+    Ok(launched_pids)
 }
 
 #[tauri::command]
+async fn get_available_links() -> Result<Vec<(String, serde_json::Value)>, String> {
+    println!("[LOG] Loading available links (static config)");
+
+    Ok(vec![
+        ("GetBonus".to_string(), serde_json::json!({
+            "name": "GetBonus",
+            "app_name": "getbonus",
+            "app_type": "app",
+            "ref_link": "",
+            "mixed": "yes"
+        })),
+        ("Lootly".to_string(), serde_json::json!({
+            "name": "Lootly",
+            "app_name": "LootlyGameBot",
+            "app_type": "start",
+            "ref_link": "",
+            "mixed": "yes"
+        })),
+        ("Twist".to_string(), serde_json::json!({
+            "name": "Twist",
+            "app_name": "twistappbot",
+            "app_type": "app",
+            "ref_link": "",
+            "mixed": "yes"
+        })),
+        ("Rolls".to_string(), serde_json::json!({
+            "name": "Rolls",
+            "app_name": "rollsgame_bot",
+            "app_type": "app",
+            "ref_link": "ref_xEmnaKUVPi",
+            "mixed": "yes"
+        })),
+        ("Qzino".to_string(), serde_json::json!({
+            "name": "Qzino",
+            "app_name": "qzino_official_bot",
+            "app_type": "app",
+            "ref_link": "",
+            "mixed": "yes"
+        })),
+        ("Quantum".to_string(), serde_json::json!({
+            "name": "Quantum Machines",
+            "app_name": "Quantum_Machines_bot",
+            "app_type": "start",
+            "ref_link": "",
+            "mixed": "yes"
+        })),
+        ("VIRUS".to_string(), serde_json::json!({
+            "name": "VIRUS",
+            "app_name": "virus_play_bot",
+            "app_type": "app",
+            "ref_link": "",
+            "mixed": "yes"
+        }))
+    ])
+}
+#[tauri::command]
 async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String> {
-    // Логування початку операції
-    println!("[LOG] Початок побудови посилання для: {}", link_params.app_name);
-    println!("[LOG] Повний ref_link: {}", link_params.ref_link);
+    println!(
+        "[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ: app_name={}, app_type={}, ref_link={}",
+        link_params.app_name, link_params.app_type, link_params.ref_link
+    );
     
-    // Використовуємо той самий формат, що й Python скрипт
+    // Р¤РѕСЂРјСѓС”РјРѕ URL Р·Р° С‚РёРј Р¶Рµ РїСЂРёРЅС†РёРїРѕРј, С‰Рѕ Р№ Python СЃРєСЂРёРїС‚.
     let mut link = format!("tg://resolve?domain={}", link_params.app_name);
     
     if !link_params.app_type.is_empty() {
@@ -521,11 +641,11 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
                         .find(|(key, _)| key == "startapp")
                         .map(|(_, value)| value.to_string())
                         .unwrap_or_else(|| {
-                            println!("[LOG] Не вдалося витягти startapp з URL, використовуємо повний ref_link");
+                            println!("[LOG] РќРµ РІРґР°Р»РѕСЃСЏ РІРёС‚СЏРіРЅСѓС‚Рё startapp, РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ ref_link СЏРє С”");
                             link_params.ref_link.clone()
                         })
                 } else {
-                    println!("[LOG] Не вдалося розпарсити URL, використовуємо ref_link як є");
+                    println!("[LOG] РќРµ РІРґР°Р»РѕСЃСЏ СЂРѕР·РїР°СЂСЃРёС‚Рё URL, РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ ref_link СЏРє С”");
                     link_params.ref_link.clone()
                 }
             } else {
@@ -540,17 +660,16 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
         } else {
             link += "&startapp";
         }
-        println!("[LOG] Додано параметр app_type: {}, startapp: {}", link_params.app_type, startapp_value);
     } else {
         if !link_params.ref_link.is_empty() {
             link += &format!("&start={}", link_params.ref_link);
         } else {
             link += "&start";
         }
-        println!("[LOG] Використовується start параметр замість app_type");
+        println!("[LOG] Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ start Р±РµР· app_type");
     }
-    
-    println!("[LOG] Згенеровано посилання: {}", link);
+
+    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ (РіРѕС‚РѕРІРµ): {}", link);
     Ok(link)
 }
 
@@ -757,9 +876,9 @@ async fn get_daily_tasks() -> Result<Vec<serde_json::Value>, String> {
 }
 
 #[tauri::command]
-async fn update_daily_task(task_id: String, status: String) -> Result<(), String> {
+async fn update_daily_task(task_id: String, completed: bool) -> Result<(), String> {
     // In a real app, you would update the database
-    println!("Updated task {} status to {}", task_id, status);
+    println!("Updated task {} completed to {}", task_id, completed);
     Ok(())
 }
 
@@ -793,11 +912,26 @@ async fn maximize_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+    window.set_focus().map_err(|e| format!("Failed to focus window: {}", e))
+}
+
+#[tauri::command]
 async fn close_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
-    window.close().map_err(|e| format!("Failed to close window: {}", e))
+    window.hide().map_err(|e| format!("Failed to hide window: {}", e))
+}
+
+#[tauri::command]
+async fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
 }
 
 #[tauri::command]
@@ -818,36 +952,6 @@ async fn read_directory(path: String) -> Result<Vec<serde_json::Value>, String> 
     match std::fs::read_dir(&path) {
         Ok(dir_entries) => {
             for entry in dir_entries.flatten() {
-                if entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
-                    let mut files = Vec::new();
-                    if let Ok(dir_entries) = std::fs::read_dir(entry.path()) {
-                        for file_entry in dir_entries.flatten() {
-                            let file = file_entry.file_name();
-                            let file_path = file_entry.path();
-                            if file_path.extension().and_then(|s| s.to_str()) == Some("session") {
-                                if let Ok(metadata) = file_entry.metadata() {
-                                    let file_name = file.to_string_lossy();
-                                    files.push(serde_json::json!({
-                                        "id": files.len() + 1,
-                                        "name": file_name.strip_suffix(".session").unwrap_or(&file_name),
-                                        "status": if metadata.modified().ok().and_then(|t| t.elapsed().ok()).map_or(true, |d| d.as_secs() < 300) {
-                                            "активні"
-                                        } else {
-                                            "заблоковані"
-                                        },
-                                        "notes": format!("{} (session)", file_path.display()),
-                                        "session_type": "session",
-                                        "isFile": true,
-                                        "isDir": false,
-                                        "size": metadata.len(),
-                                        "modified": metadata.modified().ok()
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
-                
                 entries.push(serde_json::json!({
                     "id": entries.len() + 1,
                     "name": entry.file_name().to_string_lossy(),
@@ -874,7 +978,7 @@ async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> 
     
     app.dialog()
         .file()
-        .set_title("Виберіть папку з акаунтами")
+        .set_title("Р’РёР±РµСЂС–С‚СЊ РїР°РїРєСѓ Р· Р°РєР°СѓРЅС‚Р°РјРё")
         .pick_folder(move |result| {
             let _ = tx.send(result);
         });
@@ -897,20 +1001,28 @@ async fn close_telegram_processes(pids: Vec<u32>) -> Result<String, String> {
     for pid in pids {
         #[cfg(target_os = "windows")]
         {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
             match Command::new("taskkill")
+                .creation_flags(CREATE_NO_WINDOW)
                 .args(["/F", "/PID", &pid.to_string()])
                 .output()
             {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("Процес телеграму {} завершено", pid);
+                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
                     } else {
-                        println!("Не вдалося завершити процес {}: {}", pid, String::from_utf8_lossy(&output.stderr));
+                        println!(
+                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
                 }
                 Err(e) => {
-                    println!("Помилка при завершенні процесу {}: {}", pid, e);
+                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
                 }
             }
         }
@@ -925,101 +1037,118 @@ async fn close_telegram_processes(pids: Vec<u32>) -> Result<String, String> {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("Процес телеграму {} завершено", pid);
+                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
                     } else {
-                        println!("Не вдалося завершити процес {}: {}", pid, String::from_utf8_lossy(&output.stderr));
+                        println!(
+                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
                 }
                 Err(e) => {
-                    println!("Помилка при завершенні процесу {}: {}", pid, e);
+                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
                 }
             }
         }
     }
-    
-    Ok(format!("Завершено {} процесів", closed_count))
+
+    Ok(format!("Р—Р°РІРµСЂС€РµРЅРѕ {} РїСЂРѕС†РµСЃС–РІ", closed_count))
 }
 
 #[tauri::command]
 async fn close_single_account(account_id: i32) -> Result<String, String> {
     use std::process::Command;
-    
-    println!("[LOG] Закриття акаунта #{}", account_id);
-    
-    #[cfg(target_os = "windows")]
-    {
-        // Find Telegram processes by window title or command line
-        let output = Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq Telegram.exe", "/FO", "CSV", "/NH"])
-            .output()
-            .map_err(|e| format!("Failed to list processes: {}", e))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut closed_count = 0;
-        let mut found_processes = Vec::new();
-        
-        println!("[LOG] Tasklist output for account {}:", account_id);
-        println!("[LOG] Full output: {}", stdout);
-        
-        for line in stdout.lines() {
-            if line.contains("Telegram.exe") {
-                let parts: Vec<&str> = line.split(',').collect();
-                if parts.len() >= 2 {
-                    let pid_str = parts[1].trim_matches('"');
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        found_processes.push(pid);
-                        println!("[LOG] Found Telegram process with PID: {}", pid);
-                        
-                        // Try to get more details about this process
-                        let detail_output = Command::new("tasklist")
-                            .args(["/FI", "PID eq", &pid.to_string(), "/FO", "CSV"])
-                            .output();
-                        
-                        if let Ok(detail) = detail_output {
-                            let detail_stdout = String::from_utf8_lossy(&detail.stdout);
-                            println!("[LOG] Process details for PID {}: {}", pid, detail_stdout);
-                        }
-                        
-                        // Try to kill process
-                        match Command::new("taskkill")
-                            .args(["/F", "/PID", &pid.to_string()])
-                            .output()
-                        {
-                            Ok(_) => {
-                                println!("[LOG] Процес Telegram {} завершено", pid);
-                                closed_count += 1;
-                            }
-                            Err(e) => {
-                                println!("[LOG] Помилка завершення процесу {}: {}", pid, e);
-                            }
-                        }
+    let settings = load_settings_from_disk();
+    let root = settings.telegram_folder_path.trim().to_string();
+    if root.is_empty() {
+        return Err("РќРµ Р·РЅР°Р№РґРµРЅРѕ Р·Р°РїСѓС‰РµРЅРёС… РїСЂРѕС†РµСЃС–РІ Telegram РґР»СЏ С†СЊРѕРіРѕ Р°РєР°СѓРЅС‚Р°".to_string());
+    }
+
+    let account_dir = Path::new(&root).join(format!("TG {}", account_id));
+    let account_dir_lower = account_dir
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('\\', "/");
+
+    if account_dir_lower.is_empty() {
+        return Err("Invalid account folder path".to_string());
+    }
+
+    let processes = list_running_telegram_processes();
+    let mut target_pids: Vec<u32> = Vec::new();
+
+    for (pid, _name, path) in processes {
+        let path_lower = path.to_lowercase().replace('\\', "/");
+        if path_lower == account_dir_lower || path_lower.starts_with(&(account_dir_lower.clone() + "/")) {
+            target_pids.push(pid);
+        }
+    }
+
+    if target_pids.is_empty() {
+        return Err("РќРµ Р·РЅР°Р№РґРµРЅРѕ Р·Р°РїСѓС‰РµРЅРёС… РїСЂРѕС†РµСЃС–РІ Telegram РґР»СЏ С†СЊРѕРіРѕ Р°РєР°СѓРЅС‚Р°".to_string());
+    }
+
+    let mut closed_count = 0;
+
+    for pid in target_pids {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            match Command::new("taskkill")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["/F", "/PID", &pid.to_string()])
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        closed_count += 1;
+                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                    } else {
+                        println!(
+                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                     }
+                }
+                Err(e) => {
+                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
                 }
             }
         }
-        
-        println!("[LOG] Found {} Telegram processes, closed {} of them", found_processes.len(), closed_count);
-        
-        if closed_count > 0 {
-            Ok(format!("Закрито {} процесів Telegram", closed_count))
-        } else {
-            Err("Не знайдено активних процесів Telegram".to_string())
-        }
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        // For non-Windows systems
-        match Command::new("pkill")
-            .args(["-f", "Telegram"])
-            .output()
-        {
-            Ok(_) => Ok("Процеси Telegram завершено".to_string()),
-            Err(e) => Err(format!("Помилка завершення процесів: {}", e)),
-        }
-    }
-}
 
+        #[cfg(not(target_os = "windows"))]
+        {
+            match Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        closed_count += 1;
+                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                    } else {
+                        println!(
+                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
+                }
+            }
+        }
+    }
+
+    Ok(format!("Р—Р°РІРµСЂС€РµРЅРѕ {} РїСЂРѕС†РµСЃС–РІ Telegram", closed_count))
+}
 #[tauri::command]
 async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, String> {
     let processes = list_running_telegram_processes()
@@ -1035,3 +1164,8 @@ async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, Stri
 
     Ok(processes)
 }
+
+
+
+
+

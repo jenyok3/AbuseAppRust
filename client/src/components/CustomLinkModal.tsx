@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,22 +17,22 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
   const [errors, setErrors] = useState<string[]>([]);
 
   // Validate URL
-  const validateUrl = (url: string): string[] => {
+  const validateUrl = (value: string): string[] => {
     const validationErrors: string[] = [];
 
-    if (!url || url.trim().length === 0) {
+    if (!value || value.trim().length === 0) {
       validationErrors.push("Посилання є обов'язковим");
       return validationErrors;
     }
 
     try {
-      new URL(url);
+      new URL(value);
     } catch (error) {
       validationErrors.push("Некоректне посилання");
     }
 
     // Check if it's a Telegram link
-    if (!url.startsWith('https://t.me/') && !url.startsWith('tg://')) {
+    if (!value.startsWith("https://t.me/") && !value.startsWith("tg://")) {
       validationErrors.push("Посилання має починатися з https://t.me/ або tg://");
     }
 
@@ -41,7 +41,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validate URL
     const validationErrors = validateUrl(url);
     if (validationErrors.length > 0) {
@@ -52,7 +52,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
     // Submit URL
     onSubmit(url.trim());
     onClose();
-    
+
     // Reset form
     setUrl("");
     setErrors([]);
@@ -73,9 +73,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
       <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-3xl p-8 w-full max-w-md mx-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-display font-bold text-white">
-            Обрати своє посилання
-          </h2>
+          <h2 className="text-2xl font-display font-bold text-white">Своє посилання</h2>
           <button
             onClick={onClose}
             className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-xl transition-all duration-200"
@@ -85,15 +83,19 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="new-password">
           {/* URL Input */}
           <div className="space-y-3">
-            <Label htmlFor="url" className="text-muted-foreground text-xs uppercase tracking-wider font-bold">Посилання на проект *</Label>
+            <Label htmlFor="url" className="text-muted-foreground text-xs tracking-wider font-bold">
+              Посилання на проєкт
+            </Label>
             <Input
               id="url"
+              name="custom_link_url"
+              autoComplete="new-password"
               value={url}
               onChange={(e) => handleInputChange(e.target.value)}
-              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-primary/50 focus:outline-none"
+              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none"
               placeholder="https://t.me/your_bot"
             />
           </div>
@@ -102,7 +104,9 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
           {errors.length > 0 && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 backdrop-blur-sm">
               {errors.map((error, index) => (
-                <p key={index} className="text-red-400 text-sm">{error}</p>
+                <p key={index} className="text-red-400 text-sm">
+                  {error}
+                </p>
               ))}
             </div>
           )}
@@ -118,7 +122,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
             </Button>
             <Button
               type="submit"
-              className="flex-1 h-12 bg-primary hover:bg-primary/90 text-white rounded-xl transition-all duration-300"
+              className="flex-1 h-12 bg-primary hover:bg-primary active:bg-primary/95 text-white border-0 shadow-none hover:shadow-none focus-visible:ring-0 rounded-xl transition-all duration-200"
             >
               Додати
             </Button>
@@ -128,3 +132,5 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
     </div>
   );
 }
+
+

@@ -12,7 +12,7 @@ export default function Calendar() {
       </div>
 
       <main className="relative z-10 max-w-6xl mx-auto h-full overflow-y-auto smooth-scroll custom-scrollbar">
-        <div className="h-8"></div>
+        <div className="h-2 lg:h-4"></div>
         
         <div className="flex items-center gap-3 mb-8 transition-all duration-300" style={{ marginLeft, marginTop: 'calc(50vh - 385px)' }}>
         </div>

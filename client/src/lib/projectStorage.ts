@@ -1,4 +1,6 @@
-interface ProjectData {
+import { localStore, type LocalProject } from "@/lib/localStore";
+
+export interface ProjectData {
   name: string;
   ref_link: string;
   app_name: string;
@@ -6,121 +8,77 @@ interface ProjectData {
   mixed: string;
 }
 
-const PROJECTS_STORAGE_KEY = 'telegram_projects';
+function toProjectData(project: LocalProject): ProjectData {
+  return {
+    name: project.name,
+    ref_link: project.refLink || project.link || "",
+    app_name: project.appName || project.name,
+    app_type: project.appType || "",
+    mixed: project.mixed || "",
+  };
+}
+
+function toLocalProject(project: ProjectData, existing?: LocalProject): LocalProject {
+  return {
+    id: existing?.id ?? 0,
+    name: project.name,
+    type: "telegram",
+    link: project.ref_link || "",
+    createdAt: existing?.createdAt ?? Date.now(),
+    appName: project.app_name || project.name,
+    appType: project.app_type || "",
+    refLink: project.ref_link || "",
+    mixed: project.mixed || "",
+  };
+}
 
 export const projectStorage = {
-  // Get all projects from localStorage
   getProjects(): [string, ProjectData][] {
-    try {
-      const stored = localStorage.getItem(PROJECTS_STORAGE_KEY);
-      if (!stored) return [];
-      
-      const projects = JSON.parse(stored);
-      if (!Array.isArray(projects)) return [];
-      
-      // Ensure backward compatibility - add missing fields with defaults
-      return projects.map(([name, data]: [string, any]) => {
-        const fullData: ProjectData = {
-          name: data.name || name,
-          ref_link: data.ref_link || "",
-          app_name: data.app_name || data.name || name,
-          app_type: data.app_type || "",
-          mixed: data.mixed || ""
-        };
-        return [name, fullData];
-      });
-    } catch (error) {
-      console.error('Error loading projects from localStorage:', error);
-      return [];
-    }
+    const projects = localStore.getProjects();
+    return projects.map((project) => [project.name, toProjectData(project)]);
   },
 
-  // Save projects to localStorage
   saveProjects(projects: [string, ProjectData][]): void {
-    try {
-      localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
-    } catch (error) {
-      console.error('Error saving projects to localStorage:', error);
-    }
+    const existing = localStore.getProjects();
+    const byName = new Map(existing.map((project) => [project.name, project] as const));
+    const next = projects.map(([, data]) => toLocalProject(data, byName.get(data.name)));
+    localStore.saveProjects(next);
   },
 
-  // Add a new project
   addProject(project: ProjectData): boolean {
-    try {
-      const projects = this.getProjects();
-      
-      // Check for duplicate name
-      if (projects.some(([name]) => name === project.name)) {
-        return false; // Duplicate found
-      }
-      
-      projects.push([project.name, project]);
-      this.saveProjects(projects);
-      return true;
-    } catch (error) {
-      console.error('Error adding project:', error);
-      return false;
-    }
+    const projects = localStore.getProjects();
+    if (projects.some((p) => p.name === project.name)) return false;
+    localStore.addProject(toLocalProject(project));
+    return true;
   },
 
-  // Update an existing project
   updateProject(oldName: string, project: ProjectData): boolean {
-    try {
-      const projects = this.getProjects();
-      const index = projects.findIndex(([name]) => name === oldName);
-      
-      if (index === -1) return false; // Project not found
-      
-      // If name changed, check for duplicate
-      if (oldName !== project.name && projects.some(([name], i) => name === project.name && i !== index)) {
-        return false; // New name already exists
-      }
-      
-      projects[index] = [project.name, project];
-      this.saveProjects(projects);
-      return true;
-    } catch (error) {
-      console.error('Error updating project:', error);
+    const projects = localStore.getProjects();
+    const existing = projects.find((p) => p.name === oldName);
+    if (!existing) return false;
+
+    if (oldName !== project.name && projects.some((p) => p.name === project.name)) {
       return false;
     }
+
+    localStore.updateProject(existing.id, toLocalProject(project, existing));
+    return true;
   },
 
-  // Delete a project
   deleteProject(name: string): boolean {
-    try {
-      const projects = this.getProjects();
-      const filteredProjects = projects.filter(([projectName]) => projectName !== name);
-      
-      if (filteredProjects.length === projects.length) {
-        return false; // Project not found
-      }
-      
-      this.saveProjects(filteredProjects);
-      return true;
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      return false;
-    }
+    const projects = localStore.getProjects();
+    const existing = projects.find((p) => p.name === name);
+    if (!existing) return false;
+    return localStore.deleteProject(existing.id);
   },
 
-  // Get a specific project by name
   getProject(name: string): ProjectData | null {
-    try {
-      const projects = this.getProjects();
-      const project = projects.find(([projectName]) => projectName === name);
-      return project ? project[1] : null;
-    } catch (error) {
-      console.error('Error getting project:', error);
-      return null;
-    }
+    const projects = localStore.getProjects();
+    const project = projects.find((p) => p.name === name);
+    return project ? toProjectData(project) : null;
   },
 
-  // Clear all projects
   clearProjects(): void {
-    try {
-      localStorage.removeItem(PROJECTS_STORAGE_KEY);
-    } catch (error) {
-      console.error('Error clearing projects:', error);
-    }
-  }
+    localStore.saveProjects([]);
+  },
 };

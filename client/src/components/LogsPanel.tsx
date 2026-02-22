@@ -58,7 +58,7 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [link, setLink] = useState("");
-  const [type, setType] = useState("telegram");
+  const [type, setType] = useState<"telegram" | "chrome">("telegram");
   
   const { mutate: createProject, isPending } = useCreateProject();
   const { toast } = useToast();
@@ -120,7 +120,7 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
             
             <div className="space-y-2">
               <Label>Тип</Label>
-              <Select value={type} onValueChange={setType}>
+              <Select value={type} onValueChange={(value) => setType(value as "telegram" | "chrome")}>
                 <SelectTrigger className="bg-black/50 border-white/10">
                   <SelectValue />
                 </SelectTrigger>
@@ -187,7 +187,7 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
           
           <div className="space-y-2">
             <Label>Тип</Label>
-            <Select value={type} onValueChange={setType}>
+            <Select value={type} onValueChange={(value) => setType(value as "telegram" | "chrome")}>
               <SelectTrigger className="bg-black/50 border-white/10">
                 <SelectValue />
               </SelectTrigger>

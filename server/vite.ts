@@ -15,6 +15,11 @@ export async function setupVite(server: Server, app: Express) {
     allowedHosts: true as const,
   };
 
+  // Prevent Chrome DevTools probe from hitting Vite JSON transformer.
+  app.get("/.well-known/appspecific/com.chrome.devtools.json", (_req, res) => {
+    res.status(204).end();
+  });
+
   const vite = await createViteServer({
     ...viteConfig,
     configFile: false,
@@ -51,8 +56,13 @@ export async function setupVite(server: Server, app: Express) {
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
-      vite.ssrFixStacktrace(e as Error);
-      next(e);
+      const err = e as any;
+      console.error("Vite transformIndexHtml error:", err?.message || err);
+      if (err?.id) console.error("Vite error id:", err.id);
+      if (err?.plugin) console.error("Vite error plugin:", err.plugin);
+      if (err?.stack) console.error(err.stack);
+      vite.ssrFixStacktrace(err as Error);
+      next(err);
     }
   });
 }

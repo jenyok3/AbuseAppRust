@@ -14,6 +14,8 @@ import Calendar from "@/pages/Calendar";
 import NotFound from "@/pages/not-found";
 import { GlobalWindowControls } from "@/components/GlobalWindowControls";
 import { GlobalKeyboardControls } from "@/components/GlobalKeyboardControls";
+import { DailyReminderScheduler } from "@/components/DailyReminderScheduler";
+import { AppTray } from "@/components/AppTray";
 
 function Router() {
   return (
@@ -47,6 +49,8 @@ function App() {
           </div>
         </div>
           <GlobalKeyboardControls />
+          <DailyReminderScheduler />
+          <AppTray />
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>

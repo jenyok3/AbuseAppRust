@@ -1,8 +1,10 @@
-﻿import { motion } from "framer-motion";
+import React from "react";
+import { motion } from "framer-motion";
 import { Activity, Contact, AppWindow } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import blockedGhostIcon from "@/assets/icons/blocked-ghost-custom.png";
+import { accountStatus, type AccountStatus } from "@/lib/accountStatus";
 
 interface AccountStatsWidgetProps {
   className?: string;
@@ -12,8 +14,8 @@ interface AccountStatsWidgetProps {
     blocked: number;
   };
   isLoading?: boolean;
-  activeFilter?: "all" | "активні" | "заблоковані";
-  onFilterChange?: (filter: "all" | "активні" | "заблоковані") => void;
+  activeFilter?: "all" | AccountStatus;
+  onFilterChange?: (filter: "all" | AccountStatus) => void;
 }
 
 export function AccountStatsWidget({
@@ -44,8 +46,8 @@ export function AccountStatsWidget({
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="grid gap-4 grid-cols-[minmax(0,260px),minmax(0,1fr)]">
-          <div className="flex items-center justify-center relative min-h-[140px]">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+          <div className="flex items-center justify-center relative min-h-[140px] w-full sm:col-start-1">
             {chartData.length > 0 ? (
               <div className="w-28 h-28 sm:w-40 sm:h-40 relative">
                 <ResponsiveContainer width="100%" height="100%">
@@ -85,12 +87,12 @@ export function AccountStatsWidget({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 justify-center items-center w-full">
+          <div className="flex flex-col gap-2 justify-center items-center w-full min-w-0 sm:col-start-2">
             <button
               type="button"
               onClick={() => onFilterChange?.("all")}
               className={cn(
-                "flex items-center justify-between sm:justify-start gap-2 py-2 px-2 rounded-lg w-full transition-all duration-200 min-w-[9rem]",
+                "inline-flex items-center justify-start gap-2 py-2 px-2 rounded-lg w-fit max-w-full min-w-0 transition-all duration-200",
                 onFilterChange ? "cursor-pointer hover:bg-white/10" : "cursor-default"
               )}
             >
@@ -100,11 +102,11 @@ export function AccountStatsWidget({
 
             <button
               type="button"
-              onClick={() => onFilterChange?.("активні")}
+              onClick={() => onFilterChange?.(accountStatus.active)}
               className={cn(
-                "flex items-center justify-between sm:justify-start gap-2 py-2 px-2 rounded-lg w-full transition-all duration-200 min-w-[9rem]",
+                "inline-flex items-center justify-start gap-2 py-2 px-2 rounded-lg w-fit max-w-full min-w-0 transition-all duration-200",
                 onFilterChange ? "cursor-pointer hover:bg-white/10" : "cursor-default",
-                activeFilter === "активні" && "bg-white/10"
+                activeFilter === accountStatus.active && "bg-white/10"
               )}
             >
               <AppWindow className="text-green-500 w-5 h-5 flex-shrink-0" />
@@ -113,11 +115,11 @@ export function AccountStatsWidget({
 
             <button
               type="button"
-              onClick={() => onFilterChange?.("заблоковані")}
+              onClick={() => onFilterChange?.(accountStatus.blocked)}
               className={cn(
-                "flex items-center justify-between sm:justify-start gap-2 py-2 px-2 rounded-lg w-full transition-all duration-200 min-w-[9rem]",
+                "inline-flex items-center justify-start gap-2 py-2 px-2 rounded-lg w-fit max-w-full min-w-0 transition-all duration-200",
                 onFilterChange ? "cursor-pointer hover:bg-white/10" : "cursor-default",
-                activeFilter === "заблоковані" && "bg-white/10"
+                activeFilter === accountStatus.blocked && "bg-white/10"
               )}
             >
               <img src={blockedGhostIcon} alt="Blocked accounts" className="w-5 h-5 object-contain flex-shrink-0" />

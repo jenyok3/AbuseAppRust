@@ -1,6 +1,6 @@
 {
   "productName": "AbuseApp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.abuseapp.desktop",
   "build": {
     "frontendDist": "../client/dist/public",
@@ -14,12 +14,13 @@
         "title": "AbuseApp",
         "width": 1400,
         "height": 750,
-        "minWidth": 1000,
-        "minHeight": 700,
+        "minWidth": 620,
+        "minHeight": 430,
         "resizable": true,
         "fullscreen": false,
-        "center": true,
+        "center": false,
         "decorations": false,
+        "visible": false,
         "transparent": false,
         "devtools": true
       }

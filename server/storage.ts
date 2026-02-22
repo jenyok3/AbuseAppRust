@@ -2,12 +2,20 @@ import { db } from "./db";
 import {
   projectsTable, accountsTable, dailyTasksTable, logsTable, settingsTable,
   type Project, type InsertProject,
-  type Account, type InsertAccount,
+  type Account, type InsertAccount, type AccountStatus,
   type DailyTask, type InsertDailyTask,
   type Log, type InsertLog,
   type Settings, type InsertSettings
 } from "@shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
+
+export class NotFoundError extends Error {
+  status = 404;
+  constructor(message: string) {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
 
 export interface IStorage {
   // Projects
@@ -44,6 +52,13 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private normalizeAccountStatus(status: unknown): AccountStatus {
+    if (status === "live") return "active";
+    if (status === "blocked") return "blocked";
+    if (status === "inactive") return "inactive";
+    return "active";
+  }
+
   async getProjects(): Promise<Project[]> {
     return await db.select().from(projectsTable).orderBy(desc(projectsTable.createdAt));
   }
@@ -54,11 +69,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteProject(id: number): Promise<void> {
-    await db.delete(projectsTable).where(eq(projectsTable.id, id));
+    const deleted = await db.delete(projectsTable)
+      .where(eq(projectsTable.id, id))
+      .returning();
+    if (deleted.length === 0) {
+      throw new NotFoundError("Project not found");
+    }
   }
 
   async getAccounts(): Promise<Account[]> {
-    return await db.select().from(accountsTable);
+    const rows = await db.select().from(accountsTable);
+    return rows.map((row: any) => ({
+      ...row,
+      status: this.normalizeAccountStatus(row.status),
+    }));
   }
 
   async createAccount(account: InsertAccount): Promise<Account> {
@@ -71,6 +95,9 @@ export class DatabaseStorage implements IStorage {
       .set({ notes })
       .where(eq(accountsTable.id, id))
       .returning();
+    if (!updated) {
+      throw new NotFoundError("Account not found");
+    }
     return updated;
   }
 
@@ -88,11 +115,19 @@ export class DatabaseStorage implements IStorage {
       .set({ isCompleted })
       .where(eq(dailyTasksTable.id, id))
       .returning();
+    if (!updated) {
+      throw new NotFoundError("Daily task not found");
+    }
     return updated;
   }
 
   async deleteDailyTask(id: number): Promise<void> {
-    await db.delete(dailyTasksTable).where(eq(dailyTasksTable.id, id));
+    const deleted = await db.delete(dailyTasksTable)
+      .where(eq(dailyTasksTable.id, id))
+      .returning();
+    if (deleted.length === 0) {
+      throw new NotFoundError("Daily task not found");
+    }
   }
 
   async getLogs(): Promise<Log[]> {
@@ -107,8 +142,8 @@ export class DatabaseStorage implements IStorage {
   async getStats() {
     const allAccounts = await db.select().from(accountsTable);
     const totalAccounts = allAccounts.length;
-    const liveAccounts = allAccounts.filter((a: Account) => a.status === 'live').length;
-    const blockedAccounts = allAccounts.filter((a: Account) => a.status === 'blocked').length;
+    const liveAccounts = allAccounts.filter((a: Account) => this.normalizeAccountStatus(a.status) === 'active').length;
+    const blockedAccounts = allAccounts.filter((a: Account) => this.normalizeAccountStatus(a.status) === 'blocked').length;
     
     const livePercent = totalAccounts > 0 
       ? Math.round((liveAccounts / totalAccounts) * 100) 

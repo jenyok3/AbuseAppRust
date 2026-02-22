@@ -1,33 +1,21 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { api, buildUrl } from "@shared/routes";
-import { Account } from "@shared/schema";
+import { useAccounts, useUpdateAccountNotes } from "@/hooks/use-dashboard";
+import type { LocalAccount } from "@/lib/localStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, ExternalLink, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { launchAccounts } from "@/lib/tauri-api";
+import { accountStatus, accountStatusLabels } from "@/lib/accountStatus";
 
 export default function Accounts() {
   const [search, setSearch] = useState("");
   const { toast } = useToast();
 
-  const { data: accounts, isLoading } = useQuery<Account[]>({
-    queryKey: [api.accounts.list.path],
-  });
+  const { data: accounts, isLoading } = useAccounts();
 
-  const updateNotesMutation = useMutation({
-    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
-      const res = await apiRequest("PATCH", buildUrl(api.accounts.updateNotes.path, { id }), { notes });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.accounts.list.path] });
-      toast({ title: "Нотатки оновлено" });
-    },
-  });
+  const updateNotesMutation = useUpdateAccountNotes();
 
   const handleOpenAccount = async (accountId: number) => {
     try {
@@ -45,7 +33,7 @@ export default function Accounts() {
     }
   };
 
-  const filteredAccounts = accounts?.filter((acc) =>
+  const filteredAccounts = accounts?.filter((acc: LocalAccount) =>
     acc.name.toLowerCase().includes(search.toLowerCase()) ||
     (acc.notes || "").toLowerCase().includes(search.toLowerCase())
   );
@@ -82,9 +70,11 @@ export default function Accounts() {
                   {account.id}
                 </span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  account.status === "live" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
+                  account.status === accountStatus.active
+                    ? "bg-green-500/10 text-green-500"
+                    : "bg-red-500/10 text-red-500"
                 }`}>
-                  {account.status}
+                  {accountStatusLabels[account.status as keyof typeof accountStatusLabels] || account.status}
                 </span>
               </div>
 
@@ -93,10 +83,17 @@ export default function Accounts() {
                   <Input
                     placeholder="Додати нотатки..."
                     className="bg-black/40 border-white/5 placeholder:text-gray-500"
-                    defaultValue=""
+                    defaultValue={account.notes ?? ""}
                     onBlur={(e) => {
                       if (e.target.value !== (account.notes || "")) {
-                        updateNotesMutation.mutate({ id: account.id, notes: e.target.value });
+                        updateNotesMutation.mutate(
+                          { id: account.id, notes: e.target.value },
+                          {
+                            onSuccess: () => {
+                              toast({ title: "Нотатки оновлено" });
+                            },
+                          }
+                        );
                       }
                     }}
                     data-testid={`input-notes-${account.id}`}

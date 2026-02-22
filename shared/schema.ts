@@ -1,7 +1,11 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { sqliteTable, text as sqliteText, integer as sqliteInteger, real as sqliteReal } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const accountStatusSchema = z.enum(["active", "blocked", "inactive"]);
+export type AccountStatus = z.infer<typeof accountStatusSchema>;
 
 // PostgreSQL tables
 export const projects = pgTable("projects", {
@@ -16,7 +20,7 @@ export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").references(() => projects.id),
   name: text("name").notNull(),
-  status: text("status").default("live"), // live, blocked
+  status: text("status").default("active"), // active, blocked, inactive
   lastActive: timestamp("last_active").defaultNow(),
   notes: text("notes"),
 });
@@ -47,15 +51,15 @@ export const projectsSqlite = sqliteTable("projects", {
   name: sqliteText("name").notNull(),
   link: sqliteText("link"),
   type: sqliteText("type").default("telegram"), // telegram or chrome
-  createdAt: sqliteInteger("created_at", { mode: "timestamp" }).default(new Date()),
+  createdAt: sqliteInteger("created_at", { mode: "timestamp" }).default(sql`(strftime('%s','now') * 1000)`),
 });
 
 export const accountsSqlite = sqliteTable("accounts", {
   id: sqliteInteger("id").primaryKey({ autoIncrement: true }),
   projectId: sqliteInteger("project_id").references(() => projectsSqlite.id),
   name: sqliteText("name").notNull(),
-  status: sqliteText("status").default("live"), // live, blocked
-  lastActive: sqliteInteger("last_active", { mode: "timestamp" }).default(new Date()),
+  status: sqliteText("status").default("active"), // active, blocked, inactive
+  lastActive: sqliteInteger("last_active", { mode: "timestamp" }).default(sql`(strftime('%s','now') * 1000)`),
   notes: sqliteText("notes"),
 });
 
@@ -68,7 +72,7 @@ export const dailyTasksSqlite = sqliteTable("daily_tasks", {
 export const logsSqlite = sqliteTable("logs", {
   id: sqliteInteger("id").primaryKey({ autoIncrement: true }),
   message: sqliteText("message").notNull(),
-  timestamp: sqliteInteger("timestamp", { mode: "timestamp" }).default(new Date()),
+  timestamp: sqliteInteger("timestamp", { mode: "timestamp" }).default(sql`(strftime('%s','now') * 1000)`),
 });
 
 export const settingsSqlite = sqliteTable("settings", {
@@ -88,7 +92,9 @@ export const logsTable = isSqlite ? logsSqlite : logs;
 export const settingsTable = isSqlite ? settingsSqlite : settings;
 
 export const insertProjectSchema = createInsertSchema(projectsTable).omit({ id: true, createdAt: true });
-export const insertAccountSchema = createInsertSchema(accountsTable).omit({ id: true, lastActive: true });
+export const insertAccountSchema = createInsertSchema(accountsTable)
+  .omit({ id: true, lastActive: true })
+  .extend({ status: accountStatusSchema.optional() });
 export const insertDailyTaskSchema = createInsertSchema(dailyTasksTable).omit({ id: true });
 export const insertLogSchema = createInsertSchema(logsTable).omit({ id: true, timestamp: true });
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

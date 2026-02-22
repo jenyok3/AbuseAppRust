@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { Server } from "http";
-import { storage } from "./storage";
+import { storage, NotFoundError } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 
@@ -8,6 +8,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const shouldSeed =
+    process.env.SEED_DATABASE === "true" || process.env.SEED_DATABASE === "1";
 
   // --- Projects ---
   app.get(api.projects.list.path, async (_req, res) => {
@@ -32,8 +34,15 @@ export async function registerRoutes(
   });
 
   app.delete(api.projects.delete.path, async (req, res) => {
-    await storage.deleteProject(Number(req.params.id));
-    res.status(204).send();
+    try {
+      await storage.deleteProject(Number(req.params.id));
+      res.status(204).send();
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return res.status(404).json({ message: err.message });
+      }
+      throw err;
+    }
   });
 
   // --- Accounts ---
@@ -64,6 +73,9 @@ export async function registerRoutes(
       const account = await storage.updateAccountNotes(Number(req.params.id), notes);
       res.json(account);
     } catch (err) {
+      if (err instanceof NotFoundError) {
+        return res.status(404).json({ message: err.message });
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -102,6 +114,9 @@ export async function registerRoutes(
       const task = await storage.toggleDailyTask(Number(req.params.id), isCompleted);
       res.json(task);
     } catch (err) {
+      if (err instanceof NotFoundError) {
+        return res.status(404).json({ message: err.message });
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -113,8 +128,15 @@ export async function registerRoutes(
   });
 
   app.delete(api.dailyTasks.delete.path, async (req, res) => {
-    await storage.deleteDailyTask(Number(req.params.id));
-    res.status(204).send();
+    try {
+      await storage.deleteDailyTask(Number(req.params.id));
+      res.status(204).send();
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return res.status(404).json({ message: err.message });
+      }
+      throw err;
+    }
   });
 
   // --- Logs ---
@@ -167,8 +189,10 @@ export async function registerRoutes(
     }
   });
 
-  // Seed Data
-  await seedDatabase();
+  // Seed Data (opt-in)
+  if (shouldSeed) {
+    await seedDatabase();
+  }
 
   return httpServer;
 }
@@ -182,12 +206,12 @@ async function seedDatabase() {
     const p3 = await storage.createProject({ name: "Lootly", type: "telegram" });
     
     // Create seed accounts
-    await storage.createAccount({ projectId: p1.id, name: "acc_1", status: "live" });
-    await storage.createAccount({ projectId: p1.id, name: "acc_2", status: "live" });
+    await storage.createAccount({ projectId: p1.id, name: "acc_1", status: "active" });
+    await storage.createAccount({ projectId: p1.id, name: "acc_2", status: "active" });
     await storage.createAccount({ projectId: p1.id, name: "acc_3", status: "blocked" });
     
     for(let i=0; i<10; i++) {
-        await storage.createAccount({ projectId: p2.id, name: `qt_acc_${i}`, status: Math.random() > 0.1 ? "live" : "blocked" });
+        await storage.createAccount({ projectId: p2.id, name: `qt_acc_${i}`, status: Math.random() > 0.1 ? "active" : "blocked" });
     }
 
     // Create seed daily tasks

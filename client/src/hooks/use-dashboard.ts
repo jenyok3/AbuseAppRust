@@ -1,6 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl } from "@shared/routes";
-import { type InsertProject, type InsertAccount, type InsertDailyTask, type InsertLog } from "@shared/schema";
+﻿import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat } from "@/lib/localStore";
+import { type AccountStatus } from "@/lib/accountStatus";
 
 // ============================================
 // PROJECTS
@@ -8,28 +8,22 @@ import { type InsertProject, type InsertAccount, type InsertDailyTask, type Inse
 
 export function useProjects() {
   return useQuery({
-    queryKey: [api.projects.list.path],
-    queryFn: async () => {
-      const res = await fetch(api.projects.list.path);
-      if (!res.ok) throw new Error("Failed to fetch projects");
-      return api.projects.list.responses[200].parse(await res.json());
-    },
+    queryKey: ["local", "projects"],
+    queryFn: async () => localStore.getProjects(),
   });
 }
 
 export function useCreateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: InsertProject) => {
-      const res = await fetch(api.projects.create.path, {
-        method: api.projects.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create project");
-      return api.projects.create.responses[201].parse(await res.json());
+    mutationFn: async (data: Omit<LocalProject, "id" | "createdAt">) => {
+      return localStore.addProject(data);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.projects.list.path] }),
+    onSuccess: (created) => {
+      localStore.addLog(`Р”РѕРґР°РЅРѕ РїСЂРѕС”РєС‚ ${created.name}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "projects"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
   });
 }
 
@@ -37,11 +31,14 @@ export function useDeleteProject() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
-      const url = buildUrl(api.projects.delete.path, { id });
-      const res = await fetch(url, { method: api.projects.delete.method });
-      if (!res.ok) throw new Error("Failed to delete project");
+      const ok = localStore.deleteProject(id);
+      if (!ok) throw new Error("Failed to delete project");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.projects.list.path] }),
+    onSuccess: (_, id) => {
+      localStore.addLog(`Р’РёРґР°Р»РµРЅРѕ РїСЂРѕС”РєС‚ #${id}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "projects"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
   });
 }
 
@@ -51,30 +48,53 @@ export function useDeleteProject() {
 
 export function useAccounts() {
   return useQuery({
-    queryKey: [api.accounts.list.path],
-    queryFn: async () => {
-      const res = await fetch(api.accounts.list.path);
-      if (!res.ok) throw new Error("Failed to fetch accounts");
-      return api.accounts.list.responses[200].parse(await res.json());
-    },
+    queryKey: ["local", "accounts"],
+    queryFn: async () => localStore.getAccounts(),
   });
 }
 
 export function useCreateAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: InsertAccount) => {
-      const res = await fetch(api.accounts.create.path, {
-        method: api.accounts.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create account");
-      return api.accounts.create.responses[201].parse(await res.json());
+    mutationFn: async (data: Omit<LocalAccount, "id">) => {
+      return localStore.addAccount(data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.accounts.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.stats.get.path] });
+      queryClient.invalidateQueries({ queryKey: ["local", "accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "stats"] });
+    },
+  });
+}
+
+export function useUpdateAccountNotes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const updated = localStore.updateAccountNotes(id, notes);
+      if (!updated) throw new Error("Failed to update account notes");
+      return updated;
+    },
+    onSuccess: (_updated, { id }) => {
+      localStore.addLog(`РћРЅРѕРІР»РµРЅРѕ РЅРѕС‚Р°С‚РєСѓ РґР»СЏ Р°РєР°СѓРЅС‚Р° ${id}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
+  });
+}
+
+export function useUpdateAccountStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: AccountStatus }) => {
+      const updated = localStore.updateAccountStatus(id, status);
+      if (!updated) throw new Error("Failed to update account status");
+      return updated;
+    },
+    onSuccess: (_updated, { id, status }) => {
+      localStore.addLog(`Р—РјС–РЅРµРЅРѕ СЃС‚Р°С‚СѓСЃ Р°РєР°СѓРЅС‚Р° ${id} РЅР° ${status}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "stats"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
@@ -85,28 +105,22 @@ export function useCreateAccount() {
 
 export function useDailyTasks() {
   return useQuery({
-    queryKey: [api.dailyTasks.list.path],
-    queryFn: async () => {
-      const res = await fetch(api.dailyTasks.list.path);
-      if (!res.ok) throw new Error("Failed to fetch daily tasks");
-      return api.dailyTasks.list.responses[200].parse(await res.json());
-    },
+    queryKey: ["local", "dailyTasks"],
+    queryFn: async () => localStore.getDailyTasks(),
   });
 }
 
 export function useCreateDailyTask() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: InsertDailyTask) => {
-      const res = await fetch(api.dailyTasks.create.path, {
-        method: api.dailyTasks.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create task");
-      return api.dailyTasks.create.responses[201].parse(await res.json());
+    mutationFn: async (data: { title: string; remindAt?: number | null }) => {
+      return localStore.addDailyTask(data.title, data.remindAt);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.dailyTasks.list.path] }),
+    onSuccess: (created) => {
+      localStore.addLog(`Додано щоденне завдання: ${created.title}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
   });
 }
 
@@ -114,29 +128,29 @@ export function useToggleDailyTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, isCompleted }: { id: number; isCompleted: boolean }) => {
-      const url = buildUrl(api.dailyTasks.toggle.path, { id });
-      const res = await fetch(url, {
-        method: api.dailyTasks.toggle.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isCompleted }),
-      });
-      if (!res.ok) throw new Error("Failed to toggle task");
-      return api.dailyTasks.toggle.responses[200].parse(await res.json());
+      const updated = localStore.toggleDailyTask(id, isCompleted);
+      if (!updated) throw new Error("Failed to toggle task");
+      return updated;
     },
     // Optimistic UI update
     onMutate: async ({ id, isCompleted }) => {
-      await queryClient.cancelQueries({ queryKey: [api.dailyTasks.list.path] });
-      const previousTasks = queryClient.getQueryData<any[]>([api.dailyTasks.list.path]);
-      queryClient.setQueryData([api.dailyTasks.list.path], (old: any[] | undefined) => {
-        return old?.map(task => task.id === id ? { ...task, isCompleted } : task);
+      await queryClient.cancelQueries({ queryKey: ["local", "dailyTasks"] });
+      const previousTasks = queryClient.getQueryData<any[]>(["local", "dailyTasks"]);
+      queryClient.setQueryData(["local", "dailyTasks"], (old: any[] | undefined) => {
+        return old?.map(task =>
+          task.id === id
+            ? (isCompleted ? { ...task, isCompleted, remindAt: null, remindedAt: null } : { ...task, isCompleted })
+            : task
+        );
       });
       return { previousTasks };
     },
     onError: (err, newTodo, context) => {
-      queryClient.setQueryData([api.dailyTasks.list.path], context?.previousTasks);
+      queryClient.setQueryData(["local", "dailyTasks"], context?.previousTasks);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: [api.dailyTasks.list.path] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
@@ -145,11 +159,70 @@ export function useDeleteDailyTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
-      const url = buildUrl(api.dailyTasks.delete.path, { id });
-      const res = await fetch(url, { method: api.dailyTasks.delete.method });
-      if (!res.ok) throw new Error("Failed to delete task");
+      const ok = localStore.deleteDailyTask(id);
+      if (!ok) throw new Error("Failed to delete task");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.dailyTasks.list.path] }),
+    onSuccess: (_, id) => {
+      localStore.addLog(`Видалено щоденне завдання #${id}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
+  });
+}
+
+export function useUpdateDailyTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      title,
+      remindAt,
+      repeatRule,
+    }: {
+      id: number;
+      title: string;
+      remindAt?: number | null;
+      repeatRule?: DailyReminderRepeat;
+    }) => {
+      const updated = localStore.updateDailyTask(id, { title, remindAt, repeatRule });
+      if (!updated) throw new Error("Failed to update task");
+      return updated;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
+  });
+}
+
+export function useUpdateDailyTaskReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, remindAt }: { id: number; remindAt?: number | null }) => {
+      const updated = localStore.updateDailyTaskReminder(id, remindAt);
+      if (!updated) throw new Error("Failed to update task reminder");
+      return updated;
+    },
+    onSuccess: (_updated, { id, remindAt }) => {
+      const label = remindAt ? "Заплановано" : "Скасовано";
+      localStore.addLog(`${label} нагадування для завдання #${id}`);
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
+    },
+  });
+}
+
+export function useMarkDailyTaskReminded() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, remindedAt }: { id: number; remindedAt: number }) => {
+      const updated = localStore.markDailyTaskReminded(id, remindedAt);
+      if (!updated) throw new Error("Failed to mark task reminded");
+      return updated;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+    },
   });
 }
 
@@ -159,28 +232,18 @@ export function useDeleteDailyTask() {
 
 export function useLogs() {
   return useQuery({
-    queryKey: [api.logs.list.path],
-    queryFn: async () => {
-      const res = await fetch(api.logs.list.path);
-      if (!res.ok) throw new Error("Failed to fetch logs");
-      return api.logs.list.responses[200].parse(await res.json());
-    },
+    queryKey: ["local", "logs"],
+    queryFn: async () => localStore.getLogs(),
   });
 }
 
 export function useCreateLog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: InsertLog) => {
-      const res = await fetch(api.logs.create.path, {
-        method: api.logs.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create log");
-      return api.logs.create.responses[201].parse(await res.json());
+    mutationFn: async (data: { message: string }) => {
+      return localStore.addLog(data.message);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.logs.list.path] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["local", "logs"] }),
   });
 }
 
@@ -190,11 +253,7 @@ export function useCreateLog() {
 
 export function useStats() {
   return useQuery({
-    queryKey: [api.stats.get.path],
-    queryFn: async () => {
-      const res = await fetch(api.stats.get.path);
-      if (!res.ok) throw new Error("Failed to fetch stats");
-      return api.stats.get.responses[200].parse(await res.json());
-    },
+    queryKey: ["local", "stats"],
+    queryFn: async () => localStore.getStats(),
   });
 }

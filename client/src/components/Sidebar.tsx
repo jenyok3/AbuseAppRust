@@ -1,237 +1,224 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { 
-  Home, 
-  Settings, 
-  Send, 
-  Chrome, 
-  Users, 
+import {
+  Settings,
+  Send,
+  Chrome,
   LogOut,
-  Calendar
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 
 export function Sidebar() {
-  const [location] = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    // Load collapsed state from localStorage
-    const saved = localStorage.getItem('sidebar-collapsed');
-    return saved === 'true';
-  });
-
-  // Save collapsed state to localStorage when it changes
-  useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', isCollapsed.toString());
-  }, [isCollapsed]);
+  const [location, setLocation] = useLocation();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isAppFocused, setIsAppFocused] = useState(true);
+  const closeTimerRef = useRef<number | null>(null);
 
   const navItems = [
     { icon: Calendar, label: "Календар", href: "/calendar" },
     { icon: Settings, label: "Налаштування", href: "/settings" },
   ];
 
-  // Determine current type based on location
   const getCurrentType = (): "telegram" | "chrome" => {
     if (location === "/chrome") return "chrome";
     return "telegram";
   };
 
-  // Check if we should highlight the farm type buttons
   const shouldHighlightFarmType = location === "/" || location === "/chrome";
 
   const [type, setType] = useState<"telegram" | "chrome">(getCurrentType());
 
-  // Update type when location changes
   useEffect(() => {
     setType(getCurrentType());
   }, [location]);
 
+  useEffect(() => {
+    const handleFocus = () => setIsAppFocused(true);
+    const handleBlur = () => {
+      setIsAppFocused(false);
+      setIsHovered(false);
+    };
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
   const handleTelegramClick = () => {
     setType("telegram");
-    window.location.href = "/";
+    setLocation("/");
   };
 
   const handleChromeClick = () => {
     setType("chrome");
-    window.location.href = "/chrome";
+    setLocation("/chrome");
   };
 
+  const isExpanded = isHovered;
+
   return (
-    <div className={cn(
-      "h-screen border-r border-white/5 bg-black/95 flex flex-col shrink-0 relative will-change-[width] transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-      isCollapsed ? "w-16" : "w-20 lg:w-64"
-    )}>
-      {/* Toggle Button */}
-      <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
+    <div className="relative shrink-0">
+      <div className="h-screen w-16" />
+      <div
         className={cn(
-          "absolute -right-3 top-1/2 -translate-y-1/2 z-50",
-          "w-6 h-6 bg-black/90 border border-white/10 rounded-full",
-          "flex items-center justify-center text-white/60 hover:text-white/80",
-          "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-black/95 hover:border-white/20",
-          "backdrop-blur-sm"
+          "fixed left-0 top-0 z-50 h-screen bg-black border-r border-white/5 flex flex-col overflow-hidden transition-[width] duration-300 ease-smooth-sidebar",
+          isExpanded ? "w-64" : "w-16"
         )}
+        onMouseEnter={() => {
+          if (!isAppFocused || !document.hasFocus()) return;
+          if (closeTimerRef.current) {
+            window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+          }
+          setIsHovered(true);
+        }}
+        onMouseLeave={() => {
+          if (closeTimerRef.current) {
+            window.clearTimeout(closeTimerRef.current);
+          }
+          closeTimerRef.current = window.setTimeout(() => {
+            setIsHovered(false);
+            closeTimerRef.current = null;
+          }, 200);
+        }}
       >
-        {isCollapsed ? (
-          <ChevronRight className="w-3 h-3" />
-        ) : (
-          <ChevronLeft className="w-3 h-3" />
-        )}
-      </button>
-
-      {/* Header / Logo Area */}
-      <div className={cn(
-        "h-20 flex items-center justify-center border-b border-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-        isCollapsed ? "lg:justify-center" : "lg:justify-start lg:px-6"
-      )}>
-        <div className="w-14 h-14 rounded-xl overflow-hidden">
-          <img 
-            src="/logo.png" 
-            alt="AbuseApp Logo" 
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              target.nextElementSibling?.classList.remove('hidden');
-            }}
-          />
-          <div className="w-full h-full bg-gradient-to-br from-purple-600 to-purple-800 flex items-center justify-center hidden">
-            <span className="text-white font-bold text-lg">A</span>
-          </div>
-        </div>
-        <span className={cn(
-          "hidden lg:inline-block ml-3 font-display font-bold text-lg tracking-wide whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
-          isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[200px] lg:ml-3"
-        )}>
-          Abuse<span className="text-primary">App</span>
-        </span>
-      </div>
-
-      {/* Farm Type Switcher */}
-      <div className={cn("space-y-2 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]", isCollapsed ? "px-2 py-2" : "p-4")}>
-        <Button 
-          variant="ghost" 
-          onClick={handleTelegramClick}
+        <div
           className={cn(
-            "w-full h-12 rounded-xl transition-colors duration-200 relative overflow-hidden",
-            isCollapsed ? "justify-center" : "justify-center lg:justify-start",
-            isCollapsed ? "gap-0" : "gap-3",
-            shouldHighlightFarmType && type === "telegram"
-              ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20" 
-              : "text-muted-foreground hover:bg-white/5 hover:text-white"
+            "h-20 flex items-center border-b border-white/5",
+            isExpanded ? "px-4 justify-start" : "px-0 justify-center"
           )}
         >
-          <div className="flex items-center justify-center w-5 h-5">
-            <Send className="w-5 h-5" />
-          </div>
-          <span className={cn(
-            "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
-            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
-          )}>
-            Telegram
-          </span>
-          {shouldHighlightFarmType && type === "telegram" && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
-          )}
-        </Button>
-        
-        <Button 
-          variant="ghost" 
-          onClick={handleChromeClick}
-          className={cn(
-            "w-full h-12 rounded-xl transition-colors duration-200 relative overflow-hidden",
-            isCollapsed ? "justify-center" : "justify-center lg:justify-start",
-            isCollapsed ? "gap-0" : "gap-3",
-            shouldHighlightFarmType && type === "chrome"
-              ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20" 
-              : "text-muted-foreground hover:bg-white/5 hover:text-white"
-          )}
-        >
-          <div className="flex items-center justify-center w-5 h-5">
-            <Chrome className="w-5 h-5" />
-          </div>
-          <span className={cn(
-            "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
-            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
-          )}>
-            Chrome
-          </span>
-          {shouldHighlightFarmType && type === "chrome" && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
-          )}
-        </Button>
-      </div>
-
-      <div className={cn(
-        "bg-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-        isCollapsed ? "mx-2" : "mx-4"
-      )}>
-        <div className="h-px" />
-      </div>
-
-      {/* Navigation */}
-      <nav className={cn(
-        "flex-1 space-y-2 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-        isCollapsed ? "px-2 py-2" : "p-4"
-      )}>
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} className={cn(
-            "flex items-center px-3 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden",
-            isCollapsed ? "gap-0" : "gap-3",
-            isCollapsed ? "justify-center" : "justify-center lg:justify-start",
-            location === item.href 
-              ? "text-white bg-white/5 shadow-inner" 
-              : "text-muted-foreground hover:text-white hover:bg-white/5"
-          )}>
-            <div className="flex items-center justify-center w-5 h-5">
-              <item.icon className={cn(
-                "w-5 h-5 transition-transform duration-300 group-hover:scale-110",
-                location === item.href && "text-primary"
-              )} />
-            </div>
-            <span className={cn(
-              "hidden lg:inline-block font-medium whitespace-nowrap overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
-              isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[160px] lg:ml-0"
-            )}>
-              {item.label}
-            </span>
-            
-            {location === item.href && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+          <div
+            className={cn(
+              "rounded-xl overflow-hidden",
+              isExpanded ? "w-14 h-14" : "w-12 h-12"
             )}
-          </Link>
-        ))}
-      </nav>
+          >
+            <img
+              src="/logo.png"
+              alt="AbuseApp Logo"
+              className={cn(
+                "w-full h-full object-contain",
+                isExpanded ? "translate-x-0" : "-translate-x-[1px]"
+              )}
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = "none";
+                target.nextElementSibling?.classList.remove("hidden");
+              }}
+            />
+            <div className="w-full h-full bg-gradient-to-br from-purple-600 to-purple-800 flex items-center justify-center hidden">
+              <span className={cn("text-white font-bold", isExpanded ? "text-lg" : "text-sm")}>A</span>
+            </div>
+          </div>
+          {isExpanded ? (
+            <span className="ml-3 font-display font-bold text-lg tracking-wide whitespace-nowrap">
+              Abuse<span className="text-primary">App</span>
+            </span>
+          ) : null}
+        </div>
 
-      {/* Footer / User Profile */}
-      <div className={cn(
-        "border-t border-white/5 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
-        isCollapsed ? "p-2" : "p-4"
-      )}>
-        <button className={cn(
-          "flex items-center w-full p-2 rounded-xl hover:bg-white/5 transition-colors group",
-          isCollapsed ? "gap-0" : "gap-3",
-          isCollapsed ? "justify-center" : "justify-center lg:justify-start"
-        )}>
-          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 border border-white/10">
-            {/* Avatar placeholder - could add user icon here */}
-          </div>
-          <div className={cn(
-            "hidden lg:flex flex-col items-start overflow-hidden transition-[opacity,max-width,margin] duration-300 ease-out",
-            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-[220px] lg:ml-0"
-          )}>
-            <span className="text-sm font-medium text-white truncate w-full">Administrator</span>
-            <span className="text-xs text-muted-foreground">admin@abuse.app</span>
-          </div>
-          <div className={cn(
-            "hidden lg:flex items-center justify-center w-4 h-4 ml-auto transition-[opacity,max-width,margin] duration-300 ease-out",
-            isCollapsed ? "lg:opacity-0 lg:max-w-0 lg:ml-0" : "lg:opacity-100 lg:max-w-4 lg:ml-auto"
-          )}>
-            <LogOut className="w-4 h-4 text-muted-foreground group-hover:text-red-400" />
-          </div>
-        </button>
+        <div className={cn("space-y-2", isExpanded ? "p-4" : "px-2 py-2")}>
+          <Button
+            variant="ghost"
+            onClick={handleTelegramClick}
+            className={cn(
+              "w-full h-12 rounded-xl transition-[color,background-color,border-color] duration-300 relative overflow-hidden",
+              isExpanded ? "justify-start gap-3 px-3" : "justify-center px-0",
+              shouldHighlightFarmType && type === "telegram"
+                ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20"
+                : "text-muted-foreground hover:bg-white/5 hover:text-white"
+            )}
+          >
+            <div className="flex items-center justify-center w-5 h-5">
+              <Send className="w-5 h-5" />
+            </div>
+            {isExpanded ? <span className="font-medium whitespace-nowrap">Telegram</span> : null}
+            {shouldHighlightFarmType && type === "telegram" ? (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+            ) : null}
+          </Button>
+
+          <Button
+            variant="ghost"
+            onClick={handleChromeClick}
+            className={cn(
+              "w-full h-12 rounded-xl transition-[color,background-color,border-color] duration-300 relative overflow-hidden",
+              isExpanded ? "justify-start gap-3 px-3" : "justify-center px-0",
+              shouldHighlightFarmType && type === "chrome"
+                ? "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20"
+                : "text-muted-foreground hover:bg-white/5 hover:text-white"
+            )}
+          >
+            <div className="flex items-center justify-center w-5 h-5">
+              <Chrome className="w-5 h-5" />
+            </div>
+            {isExpanded ? <span className="font-medium whitespace-nowrap">Chrome</span> : null}
+            {shouldHighlightFarmType && type === "chrome" ? (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+            ) : null}
+          </Button>
+        </div>
+
+        <div className={cn("mx-2 bg-white/5", isExpanded ? "mx-4" : "mx-2")}>
+          <div className="h-px" />
+        </div>
+
+        <nav className={cn("flex-1 space-y-2", isExpanded ? "p-4" : "px-2 py-2")}>
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center rounded-xl transition-[color,background-color] duration-300 group relative overflow-hidden",
+                isExpanded ? "justify-start gap-3 px-3 py-3" : "justify-center px-0 py-3",
+                location === item.href
+                  ? "text-white bg-white/5 shadow-inner"
+                  : "text-muted-foreground hover:text-white hover:bg-white/5"
+              )}
+            >
+              <div className="flex items-center justify-center w-5 h-5">
+                <item.icon className={cn("w-5 h-5", location === item.href && "text-primary")} />
+              </div>
+              {isExpanded ? (
+                <span className="font-medium whitespace-nowrap">{item.label}</span>
+              ) : null}
+              {location === item.href ? (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full" />
+              ) : null}
+            </Link>
+          ))}
+        </nav>
+
+        <div className={cn("border-t border-white/5", isExpanded ? "p-4" : "p-2")}>
+          <button
+            className={cn(
+              "flex items-center w-full rounded-xl hover:bg-white/5 transition-[color,background-color] duration-300 group",
+              isExpanded ? "p-2 justify-start gap-3" : "p-2 justify-center"
+            )}
+          >
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 border border-white/10" />
+            {isExpanded ? (
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium text-white truncate w-full">Administrator</span>
+                <span className="text-xs text-muted-foreground">admin@abuse.app</span>
+              </div>
+            ) : null}
+            {isExpanded ? (
+              <div className="flex items-center justify-center w-4 h-4 ml-auto">
+                <LogOut className="w-4 h-4 text-muted-foreground group-hover:text-red-400" />
+              </div>
+            ) : null}
+          </button>
+        </div>
       </div>
+      {isExpanded ? (
+        <div className="fixed inset-y-0 left-16 right-0 z-40 bg-black/25 backdrop-blur-sm" />
+      ) : null}
     </div>
   );
 }

@@ -32,12 +32,24 @@ export const launchAccountsBatch = async (linkParams: any, startRange: number, e
   });
 };
 
+export const launchAccountsForProfiles = async (
+  linkParams: any,
+  profileIds: number[],
+  telegramFolderPath: string
+) => {
+  return await invoke('launch_accounts_for_profiles', {
+    linkParams,
+    profileIds,
+    telegramFolderPath,
+  });
+};
+
 export const getAvailableLinks = async () => {
   return await invoke('get_available_links');
 };
 
 export const buildTelegramLink = async (params: any) => {
-  return await invoke('build_telegram_link', { params });
+  return await invoke('build_telegram_link', { linkParams: params });
 };
 
 export const closeTelegramProcesses = async (pids: number[]) => {
