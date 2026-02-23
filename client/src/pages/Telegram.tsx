@@ -36,6 +36,7 @@ export default function Telegram() {
   const { data: recentActions = [] } = useLogs();
   const { mutate: createLog } = useCreateLog();
   const [selectedProject, setSelectedProject] = useState<string>("");
+  const [customLink, setCustomLink] = useState<TelegramLink | null>(null);
   const [startRange, setStartRange] = useState("");
   const [endRange, setEndRange] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -77,6 +78,8 @@ export default function Telegram() {
   const statsDelayRef = useRef(statsBaseDelayMs);
   const statsTimerRef = useRef<number | null>(null);
   const launchHydratedRef = useRef(false);
+  const cancelLaunchRef = useRef(false);
+  const lastLaunchProjectRef = useRef<string>("");
 
   const stableAccountId = (seed: string): number => {
     let hash = 5381;
@@ -488,7 +491,11 @@ export default function Telegram() {
   useEffect(() => {
     const saved = localStore.getTelegramLaunchState();
     if (saved) {
-      setSelectedProject(saved.selectedProject || "");
+      if (saved.selectedProject === "custom" && !saved.launchParams) {
+        setSelectedProject("");
+      } else {
+        setSelectedProject(saved.selectedProject || "");
+      }
       setStartRange(saved.startRange || "");
       setEndRange(saved.endRange || "");
       setIsMix(Boolean(saved.isMix));
@@ -611,6 +618,7 @@ export default function Telegram() {
   useEffect(() => {
     if (!selectedProject) return;
     if (selectedProject.startsWith("#")) return;
+    if (selectedProject === "custom") return;
     const exists = availableLinks.some(([name]) => name === selectedProject);
     if (!exists) {
       setSelectedProject("");
@@ -1311,6 +1319,7 @@ export default function Telegram() {
   }, [launchedPids, pendingProfiles]);
 
   const handleLaunch = async () => {
+    cancelLaunchRef.current = false;
     if (!selectedProject) {
       toast({
         title: "Помилка",
@@ -1356,20 +1365,35 @@ export default function Telegram() {
     setLaunchMode("project");
 
     try {
-      // Find the selected link parameters
-      const selectedLink = availableLinks.find(([name]) => name === selectedProject);
-      if (!selectedLink) {
-        throw new Error("Selected project not found");
-      }
+      let projectName = "";
+      let linkParams: TelegramLink | null = null;
 
-      const [projectName, linkParams] = selectedLink;
+      if (selectedProject === "custom") {
+        if (!customLink) {
+          throw new Error("Custom link is missing");
+        }
+        projectName = customLink.app_name || "custom";
+        linkParams = customLink;
+      } else {
+        const selectedLink = availableLinks.find(([name]) => name === selectedProject);
+        if (!selectedLink) {
+          throw new Error("Selected project not found");
+        }
+        [projectName, linkParams] = selectedLink;
+      }
       
+      lastLaunchProjectRef.current = projectName;
+
       // Handle custom link differently
       let launchParams;
       console.log('Debug - projectName:', projectName);
       console.log('Debug - linkParams:', linkParams);
       console.log('Debug - availableLinks:', availableLinks);
       
+      if (!linkParams) {
+        throw new Error("Selected project params missing");
+      }
+
       // Always use the parsed app_name and app_type from linkParams
       launchParams = {
         api_id: linkParams.api_id || "",
@@ -1407,10 +1431,17 @@ export default function Telegram() {
         firstBatch,
         settings.telegramFolderPath
       ) as number[];
+
+      if (cancelLaunchRef.current) {
+        if (pids.length > 0) {
+          await closeTelegramProcesses(pids);
+        }
+        return;
+      }
       
       setLaunchedPids(pids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
-      logAction(`Запущено ${pids.length} акаунтів (${start}-${end}) для проєкту ${projectName}`);
+      logAction(`Запущено ${projectName}`);
       
       toast({
         title: "Запуск виконано",
@@ -1447,6 +1478,9 @@ export default function Telegram() {
   const launchPlainProfiles = async (profileIds: number[], baseCount: number, telegramFolderPath: string) => {
     const launched: number[] = [];
     for (let i = 0; i < profileIds.length; i += 1) {
+      if (cancelLaunchRef.current) {
+        break;
+      }
       try {
         const pid = await launchSingleAccount(profileIds[i], telegramFolderPath);
         if (Number.isFinite(pid)) {
@@ -1455,10 +1489,12 @@ export default function Telegram() {
       } catch (error) {
         console.warn("Failed to launch account:", profileIds[i], error);
       }
-      setLaunchProgressCount((prev) => {
-        const next = baseCount + i + 1;
-        return next > prev ? next : prev;
-      });
+      if (!cancelLaunchRef.current) {
+        setLaunchProgressCount((prev) => {
+          const next = baseCount + i + 1;
+          return next > prev ? next : prev;
+        });
+      }
     }
     return launched;
   };
@@ -1562,14 +1598,20 @@ export default function Telegram() {
     try {
       const customProject = parseTelegramLinkFromUrl(customUrl);
       
-      // Add to available links temporarily
-      setAvailableLinks(prev => [...prev, [customProject.app_name || "custom", customProject]]);
-      setSelectedProject(customProject.app_name || "custom");
-      logAction(`Додано кастомний проєкт ${customProject.app_name || "custom"}`);
+      setCustomLink(customProject);
+      setSelectedProject("custom");
+      window.setTimeout(() => {
+        const startInput = document.getElementById("start-range-input") as HTMLInputElement | null;
+        if (startInput) {
+          startInput.focus();
+          startInput.select();
+        }
+      }, 160);
+      logAction(`Додано кастомне посилання ${customProject.app_name || "custom"}`);
       
       toast({
-        title: "Кастомний проєкт додано",
-        description: `Проєкт ${customProject.app_name || "custom"} додано`,
+        title: "Кастомне посилання додано",
+        description: `Посилання застосовано (не зберігається)`,
       });
     } catch (error) {
       toast({
@@ -1714,6 +1756,7 @@ export default function Telegram() {
 
   // Function to continue batch launch (simulate F6 press)
   const handleContinueLaunch = async () => {
+    cancelLaunchRef.current = false;
     try {
       const hasNext = pendingProfiles.length > 0;
 
@@ -1725,6 +1768,7 @@ export default function Telegram() {
       }
 
       if (!hasNext) {
+        const activeProjectName = lastLaunchProjectRef.current || launchParams?.app_name || selectedProject || "";
         setPendingProfiles([]);
         setLaunchParams(null);
         setLaunchMode(null);
@@ -1744,7 +1788,11 @@ export default function Telegram() {
           title: "Пакет завершено",
           description: "Усі запущені Telegram процеси закрито",
         });
-        logAction(`Завершено пакет запуску: закрито ${launchedPids.length} процесів`);
+        if (activeProjectName) {
+          logAction(`Завершено ${activeProjectName}`);
+        } else {
+          logAction("Завершено запуск");
+        }
         return;
       }
 
@@ -1786,20 +1834,36 @@ export default function Telegram() {
       } else {
         let params = launchParams;
         if (!params && selectedProject) {
-          const selectedLink = availableLinks.find(([name]) => name === selectedProject);
-          if (selectedLink) {
-            const [projectName, linkParams] = selectedLink;
-            params = {
-              api_id: linkParams.api_id || "",
-              api_hash: linkParams.api_hash || "",
-              phone: linkParams.phone || "",
-              app_name: linkParams.app_name || projectName,
-              app_type: linkParams.app_type || "",
-              ref_link: linkParams.ref_link || "",
-              mixed: isMix ? "yes" : "no",
-            };
-            setLaunchParams(params);
-            setLaunchMode("project");
+          if (selectedProject === "custom") {
+            if (customLink) {
+              params = {
+                api_id: customLink.api_id || "",
+                api_hash: customLink.api_hash || "",
+                phone: customLink.phone || "",
+                app_name: customLink.app_name || "custom",
+                app_type: customLink.app_type || "",
+                ref_link: customLink.ref_link || "",
+                mixed: isMix ? "yes" : "no",
+              };
+              setLaunchParams(params);
+              setLaunchMode("project");
+            }
+          } else {
+            const selectedLink = availableLinks.find(([name]) => name === selectedProject);
+            if (selectedLink) {
+              const [projectName, linkParams] = selectedLink;
+              params = {
+                api_id: linkParams.api_id || "",
+                api_hash: linkParams.api_hash || "",
+                phone: linkParams.phone || "",
+                app_name: linkParams.app_name || projectName,
+                app_type: linkParams.app_type || "",
+                ref_link: linkParams.ref_link || "",
+                mixed: isMix ? "yes" : "no",
+              };
+              setLaunchParams(params);
+              setLaunchMode("project");
+            }
           }
         }
 
@@ -1817,6 +1881,13 @@ export default function Telegram() {
           nextBatch,
           settings.telegramFolderPath
         ) as number[];
+      }
+
+      if (cancelLaunchRef.current) {
+        if (pids.length > 0) {
+          await closeTelegramProcesses(pids);
+        }
+        return;
       }
 
       setLaunchedPids(pids);
@@ -1841,12 +1912,20 @@ export default function Telegram() {
   };
 
   const handleCloseAllOpenedAccounts = async () => {
+    cancelLaunchRef.current = true;
     const pids = Array.from(new Set([
       ...Array.from(openAccounts.values()),
       ...launchedPids,
     ]));
+    const activeProjectName = lastLaunchProjectRef.current || launchParams?.app_name || selectedProject || "";
 
-    if (pids.length === 0) {
+    const hasAnyToReset =
+      isLaunching ||
+      pendingProfiles.length > 0 ||
+      launchedPids.length > 0 ||
+      openAccounts.size > 0;
+
+    if (pids.length === 0 && !hasAnyToReset) {
       toast({
         title: "Немає відкритих акаунтів",
         description: "Зараз немає процесів для закриття",
@@ -1855,7 +1934,9 @@ export default function Telegram() {
     }
 
     try {
-      await closeTelegramProcesses(pids);
+      if (pids.length > 0) {
+        await closeTelegramProcesses(pids);
+      }
       setOpenAccounts(new Map());
       setLaunchedPids([]);
       setPendingProfiles([]);
@@ -1867,13 +1948,19 @@ export default function Telegram() {
       setBatchSize(1);
       setTotalProfiles(0);
       setLaunchProgressCount(0);
+      setIsLaunching(false);
       localStore.clearTelegramLaunchState();
       await loadRealStats();
 
       toast({
-        title: "Усі акаунти закрито",
-        description: `Завершено ${pids.length} процесів`,
+        title: pids.length > 0 ? "Усі акаунти закрито" : "Запуск зупинено",
+        description: pids.length > 0 ? `Завершено ${pids.length} процесів` : "Черга запуску очищена",
       });
+      if (activeProjectName) {
+        logAction(`Завершено ${activeProjectName}`);
+      } else if (hasAnyToReset) {
+        logAction("Завершено запуск");
+      }
     } catch (error) {
       console.error("Failed to close all opened accounts:", error);
       toast({
@@ -1894,6 +1981,9 @@ export default function Telegram() {
   const segmentCount = totalProfilesCount > 0 ? Math.min(36, totalProfilesCount) : 36;
 
   const hasClosableAccounts = openAccounts.size > 0 || launchedPids.length > 0 || pendingProfiles.length > 0;
+  const canContinueBatch = !isLaunching && pendingProfiles.length > 0;
+  const batchActionLabel = canContinueBatch ? "Продовжити" : "Завершити";
+  const batchActionHandler = canContinueBatch ? handleContinueLaunch : handleCloseAllOpenedAccounts;
 
   // Auto-clear selection once a batch finishes and all accounts are closed manually.
   const batchActiveRef = useRef(false);
@@ -2130,19 +2220,12 @@ export default function Telegram() {
                           </span>
                         </div>
                         <Button
-                          onClick={handleContinueLaunch}
-                          disabled={isLaunching || pendingProfiles.length === 0}
-                          className="h-10 min-w-[120px] rounded-xl border-0 bg-primary hover:bg-primary/90 text-white font-semibold focus-visible:ring-0"
+                          onClick={batchActionHandler}
+                          className={`h-10 min-w-[120px] rounded-xl border-0 text-white font-semibold focus-visible:ring-0 ${
+                            canContinueBatch ? "bg-primary hover:bg-primary/90" : "bg-zinc-800 hover:bg-zinc-700"
+                          }`}
                         >
-                          {isLaunching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          Продовжити
-                        </Button>
-                        <Button
-                          onClick={handleCloseAllOpenedAccounts}
-                          disabled={isLaunching}
-                          className="h-10 min-w-[120px] rounded-xl border-0 bg-zinc-800 hover:bg-zinc-700 text-white focus-visible:ring-0"
-                        >
-                          Завершити
+                          {batchActionLabel}
                         </Button>
                       </div>
                       <div className="text-[11px] text-muted-foreground/70">
@@ -2155,11 +2238,7 @@ export default function Telegram() {
                       disabled={isLaunching || (!selectedProject || !startRange || !endRange)}
                       className="h-12 w-full sm:w-auto sm:min-w-[230px] text-base font-bold bg-primary hover:bg-primary/90 text-white border-0 shadow-none hover:shadow-none hover:-translate-y-0.5 transition-all duration-300 rounded-xl uppercase tracking-widest focus-visible:ring-0 focus-visible:outline-none"
                     >
-                      {isLaunching ? (
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      ) : (
-                        "ЗАПУСТИТИ"
-                      )}
+                      {"ЗАПУСТИТИ"}
                     </Button>
                   )}
                 </div>
@@ -2287,7 +2366,7 @@ export default function Telegram() {
                 <Select value={hashtagFilter} onValueChange={setHashtagFilter}>
                   <SelectTrigger
                     hideIcon
-                    className="h-9 w-[190px] bg-black/40 border-white/10 text-white hover:border-white/10 focus:border-white/10 data-[state=open]:border-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
+                    className="h-9 w-auto min-w-[120px] justify-start gap-2 bg-black/40 border-white/10 text-white hover:border-white/10 focus:border-white/10 data-[state=open]:border-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
                   >
                     <SelectValue placeholder="Фільтр за #" />
                     {hashtagFilter === "all" ? (
@@ -2322,7 +2401,10 @@ export default function Telegram() {
                       </button>
                     )}
                   </SelectTrigger>
-                  <SelectContent className="bg-black border-white/10 text-white">
+                  <SelectContent
+                    className="bg-black border-white/10 text-white !w-auto !min-w-0"
+                    viewportClassName="!w-auto !min-w-0"
+                  >
                     <SelectItem value="all" className="focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white">
                       Фільтр за #
                     </SelectItem>
@@ -2332,10 +2414,10 @@ export default function Telegram() {
                         <div key={tag} className="group relative">
                           <SelectItem
                             value={tag}
-                            className="focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white pr-20"
+                            className="focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white pr-12"
                           >
                             <div className="flex items-center w-full">
-                              <span className="flex-1">#{tag}</span>
+                              <span className="flex-1 max-w-[140px] truncate">#{tag}</span>
                               {meta?.link ? (
                                 <span className="text-[10px] text-primary/70 ml-2">link</span>
                               ) : null}

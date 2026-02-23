@@ -16,6 +16,9 @@ import { GlobalWindowControls } from "@/components/GlobalWindowControls";
 import { GlobalKeyboardControls } from "@/components/GlobalKeyboardControls";
 import { DailyReminderScheduler } from "@/components/DailyReminderScheduler";
 import { AppTray } from "@/components/AppTray";
+import { AuthOnboardingModal } from "@/components/AuthOnboardingModal";
+import { useEffect, useState } from "react";
+import { localStore, type LocalUser } from "@/lib/localStore";
 
 function Router() {
   return (
@@ -33,12 +36,48 @@ function Router() {
 }
 
 function App() {
+  const [authUser, setAuthUser] = useState<LocalUser | null>(null);
+  const [showAuthOnboarding, setShowAuthOnboarding] = useState(false);
+
+  useEffect(() => {
+    const user = localStore.getAuthUser();
+    setAuthUser(user);
+    if (!user && !localStore.getAuthOnboardingSeen()) {
+      setShowAuthOnboarding(true);
+    }
+  }, []);
+
+  const handleTelegramLogin = (username: string) => {
+    const normalized = username.trim().replace(/^@+/, "");
+    if (!normalized) return;
+    const user: LocalUser = {
+      id: String(Date.now()),
+      name: "Telegram User",
+      username: normalized,
+      provider: "telegram",
+    };
+    localStore.saveAuthUser(user);
+    localStore.setAuthOnboardingSeen(true);
+    setAuthUser(user);
+    setShowAuthOnboarding(false);
+  };
+
+  const handleSkipAuth = () => {
+    localStore.setAuthOnboardingSeen(true);
+    setShowAuthOnboarding(false);
+  };
+
+  const handleLogout = () => {
+    localStore.clearAuthUser();
+    setAuthUser(null);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider>
           <div className="flex h-screen w-full overflow-hidden bg-black">
-            <Sidebar />
+            <Sidebar user={authUser} onTelegramLogin={handleTelegramLogin} onLogout={handleLogout} />
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
               {/* Black Title Bar */}
             <div className="title-bar app-draggable">
@@ -52,6 +91,11 @@ function App() {
           <DailyReminderScheduler />
           <AppTray />
         </SidebarProvider>
+        <AuthOnboardingModal
+          open={showAuthOnboarding}
+          onTelegramLogin={handleTelegramLogin}
+          onSkip={handleSkipAuth}
+        />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

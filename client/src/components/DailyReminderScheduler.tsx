@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef } from "react";
 import { useDailyTasks, useMarkDailyTaskReminded } from "@/hooks/use-dashboard";
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { invoke } from "@tauri-apps/api/core";
 import { localStore, type DailyReminderRepeat } from "@/lib/localStore";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -36,6 +36,13 @@ function getNextReminderTime(current: number, repeatRule: DailyReminderRepeat): 
   }
 }
 
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (window.Notification.permission === "granted") return true;
+  if (window.Notification.permission === "denied") return false;
+  const permission = await window.Notification.requestPermission();
+  return permission === "granted";
+}
+
 export function DailyReminderScheduler() {
   const { data: tasks = [] } = useDailyTasks();
   const { mutate: markReminded } = useMarkDailyTaskReminded();
@@ -57,16 +64,34 @@ export function DailyReminderScheduler() {
         const notifyKey = `${task.id}:${task.remindAt}`;
         if (notifiedRef.current.has(notifyKey)) continue;
 
-        const granted = await isPermissionGranted();
-        if (!granted) {
-          const permission = await requestPermission();
-          if (permission !== "granted") return;
+        let sent = false;
+        try {
+          await invoke("send_reminder_notification", {
+            title: "AbuseApp",
+            body: `Нагадування: ${task.title}`,
+          });
+          sent = true;
+        } catch (error) {
+          console.error("Native reminder notification failed:", error);
         }
 
-        sendNotification({
-          title: "AbuseApp",
-          body: `Нагадування: ${task.title}`,
-        });
+        if (!sent) {
+          const granted = await ensureNotificationPermission();
+          if (!granted) continue;
+
+          const notification = new window.Notification("AbuseApp", {
+            body: `Нагадування: ${task.title}`,
+            tag: `daily-task-${task.id}`,
+          });
+          notification.onclick = async () => {
+            try {
+              notification.close();
+              await invoke("show_window");
+            } catch (error) {
+              console.error("Failed to show window from reminder click:", error);
+            }
+          };
+        }
 
         notifiedRef.current.add(notifyKey);
         const repeatRule = localStore.normalizeRepeatRule(task.repeatRule);

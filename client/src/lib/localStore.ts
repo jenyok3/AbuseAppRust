@@ -60,6 +60,14 @@ export type LocalSettings = {
   chromeFolderPath: string;
 };
 
+export type LocalUser = {
+  id: string;
+  name: string;
+  username?: string;
+  avatarUrl?: string;
+  provider: "telegram";
+};
+
 export type TelegramLaunchParams = {
   api_id: string;
   api_hash: string;
@@ -94,6 +102,8 @@ const STORAGE_KEYS = {
   settings: "appSettings",
   legacyProjects: "telegram_projects",
   telegramLaunch: "abuseapp.telegramLaunch",
+  authUser: "abuseapp.authUser",
+  authOnboardingSeen: "abuseapp.authOnboardingSeen",
 } as const;
 
 const DEFAULT_SETTINGS: LocalSettings = {
@@ -109,9 +119,9 @@ const RECENT_LOG_ALLOWLIST: RegExp[] = [
   /оновлено проєкт/i,
   /видалено проєкт/i,
   /додано кастомний проєкт/i,
-  /запущено .* для проєкту/i,
+  /запущено .+/i,
   /продовжено запуск/i,
-  /завершено пакет запуску/i,
+  /завершено .+/i,
   /додано хештег/i,
   /видалено хештег .* з усіх акаунтів/i,
   /оновлено хештег/i,
@@ -513,6 +523,29 @@ export const localStore = {
 
   saveSettings(settings: LocalSettings) {
     writeJson(STORAGE_KEYS.settings, settings);
+  },
+
+  // Auth
+  getAuthUser(): LocalUser | null {
+    const user = readJson<LocalUser | null>(STORAGE_KEYS.authUser, null);
+    if (!user || !user.id || !user.name) return null;
+    return user;
+  },
+
+  saveAuthUser(user: LocalUser) {
+    writeJson(STORAGE_KEYS.authUser, user);
+  },
+
+  clearAuthUser() {
+    writeJson(STORAGE_KEYS.authUser, null);
+  },
+
+  getAuthOnboardingSeen(): boolean {
+    return Boolean(readJson<boolean>(STORAGE_KEYS.authOnboardingSeen, false));
+  },
+
+  setAuthOnboardingSeen(value: boolean) {
+    writeJson(STORAGE_KEYS.authOnboardingSeen, Boolean(value));
   },
 
   // Telegram launch state

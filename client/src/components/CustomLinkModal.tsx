@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,16 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
   const { toast } = useToast();
   const [url, setUrl] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 20);
+    return () => window.clearTimeout(id);
+  }, [isOpen]);
 
   // Validate URL
   const validateUrl = (value: string): string[] => {
@@ -83,7 +93,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="new-password">
+        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
           {/* URL Input */}
           <div className="space-y-3">
             <Label htmlFor="url" className="text-muted-foreground text-xs tracking-wider font-bold">
@@ -91,8 +101,13 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
             </Label>
             <Input
               id="url"
-              name="custom_link_url"
-              autoComplete="new-password"
+              ref={inputRef}
+              name="custom_link_url_nostore"
+              autoComplete="off"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               value={url}
               onChange={(e) => handleInputChange(e.target.value)}
               className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none"

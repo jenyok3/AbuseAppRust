@@ -243,7 +243,6 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-    .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_autostart::init(
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
         Some(vec!["--autostart".into()]),
@@ -306,7 +305,8 @@ pub fn run() {
       open_directory_dialog,
       close_telegram_processes,
       close_single_account,
-      get_running_telegram_processes
+      get_running_telegram_processes,
+      send_reminder_notification
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
@@ -916,8 +916,53 @@ async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
+    window
+        .unminimize()
+        .map_err(|e| format!("Failed to unminimize window: {}", e))?;
     window.show().map_err(|e| format!("Failed to show window: {}", e))?;
     window.set_focus().map_err(|e| format!("Failed to focus window: {}", e))
+}
+
+#[tauri::command]
+fn send_reminder_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_winrt_notification::{Sound, Toast};
+
+        let app_id = if cfg!(debug_assertions) {
+            Toast::POWERSHELL_APP_ID.to_string()
+        } else {
+            app.config().identifier.clone()
+        };
+        let app_for_click = app.clone();
+
+        Toast::new(&app_id)
+            .title(&title)
+            .text1(&body)
+            .sound(Some(Sound::Default))
+            .on_activated(move |_| {
+                if let Some(window) = app_for_click.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                Ok(())
+            })
+            .show()
+            .map_err(|e| format!("Failed to send native reminder notification: {}", e))?;
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, title, body);
+        Ok(())
+    }
 }
 
 #[tauri::command]

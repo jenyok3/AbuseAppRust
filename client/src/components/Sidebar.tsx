@@ -6,15 +6,33 @@ import {
   Chrome,
   LogOut,
   Calendar,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import type { LocalUser } from "@/lib/localStore";
 
-export function Sidebar() {
+type SidebarProps = {
+  user: LocalUser | null;
+  onTelegramLogin: (username: string) => void;
+  onLogout: () => void;
+};
+
+export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
   const [location, setLocation] = useLocation();
   const [isHovered, setIsHovered] = useState(false);
   const [isAppFocused, setIsAppFocused] = useState(true);
   const closeTimerRef = useRef<number | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [pendingUsername, setPendingUsername] = useState("");
+  const normalizedUsername = pendingUsername.trim().replace(/^@+/, "");
+  const isValidUsername =
+    normalizedUsername.length >= 5 &&
+    normalizedUsername.length <= 32 &&
+    /^[a-zA-Z0-9_]+$/.test(normalizedUsername);
+  const canSubmitUsername = isValidUsername;
 
   const navItems = [
     { icon: Calendar, label: "Календар", href: "/calendar" },
@@ -200,12 +218,19 @@ export function Sidebar() {
               "flex items-center w-full rounded-xl hover:bg-white/5 transition-[color,background-color] duration-300 group",
               isExpanded ? "p-2 justify-start gap-3" : "p-2 justify-center"
             )}
+            onClick={() => setIsProfileOpen(true)}
           >
-            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 border border-white/10" />
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 border border-white/10">
+              <UserRound className="w-4 h-4 text-white/70" />
+            </div>
             {isExpanded ? (
               <div className="flex flex-col items-start">
-                <span className="text-sm font-medium text-white truncate w-full">Administrator</span>
-                <span className="text-xs text-muted-foreground">admin@abuse.app</span>
+                <span className="text-sm font-medium text-white truncate w-full">
+                  {user?.name || "Гість"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {user?.username ? `@${user.username}` : "Вхід не виконано"}
+                </span>
               </div>
             ) : null}
             {isExpanded ? (
@@ -216,6 +241,76 @@ export function Sidebar() {
           </button>
         </div>
       </div>
+      <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
+        <DialogContent className="bg-black/50 border-white/10 text-white max-w-md rounded-3xl backdrop-blur-md">
+          <DialogHeader className="text-left">
+            <DialogTitle className="text-2xl font-display">Профіль</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Вхід не обов'язковий для користування застосунком.
+            </DialogDescription>
+          </DialogHeader>
+          {user ? (
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white/5 border border-white/10">
+                  <UserRound className="w-5 h-5 text-white/70" />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold">{user.name}</div>
+                  <div className="text-sm text-white/60">{user.username ? `@${user.username}` : "Telegram"}</div>
+                </div>
+              </div>
+              <Button
+                onClick={() => {
+                  onLogout();
+                  setIsProfileOpen(false);
+                }}
+                variant="ghost"
+                className="w-full h-10 text-red-300 hover:text-red-200 hover:bg-red-500/10"
+              >
+                Вийти
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 pt-2">
+              <div className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-black/50 px-3 h-11">
+                <span className="text-white/40 text-sm">@</span>
+                <Input
+                  value={pendingUsername}
+                  onChange={(e) => setPendingUsername(e.target.value.replace(/^@+/, ""))}
+                  placeholder="telegram_user"
+                  className="h-9 border-0 bg-transparent px-0 text-white placeholder:text-white/30 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+              </div>
+              {!canSubmitUsername && normalizedUsername.length > 0 ? (
+                <div className="text-xs text-red-300">
+                  Юзернейм: 5–32 символи, тільки латиниця, цифри або підкреслення.
+                </div>
+              ) : null}
+              <Button
+                onClick={() => {
+                  if (!canSubmitUsername) return;
+                  onTelegramLogin(normalizedUsername);
+                  setIsProfileOpen(false);
+                  setPendingUsername("");
+                }}
+                disabled={!canSubmitUsername}
+                className="h-11 px-5 border-0 bg-[#1f88c9] hover:bg-[#1a76ad] text-white font-semibold disabled:opacity-40 disabled:hover:bg-[#1f88c9] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Зберегти юзернейм
+              </Button>
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen(false)}
+                className="text-xs text-white/50 hover:text-white/80 transition-colors"
+              >
+                Пропустити
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {isExpanded ? (
         <div className="fixed inset-y-0 left-16 right-0 z-40 bg-black/25 backdrop-blur-sm" />
       ) : null}

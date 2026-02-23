@@ -387,6 +387,9 @@ export function DailyTasksPanel() {
                 </div>
                 <div className="grid grid-cols-7 gap-1">
                   {getCalendarGrid(calendarMonth).map((cell) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const isPast = cell.date < today;
                     const isSelected =
                       cell.date.getDate() === calendarSelectedDate.getDate() &&
                       cell.date.getMonth() === calendarSelectedDate.getMonth() &&
@@ -402,12 +405,16 @@ export function DailyTasksPanel() {
                           setIsCalendarMode(false);
                         }}
                         className={cn(
-                          "h-8 rounded-lg text-sm transition-colors",
+                          "h-8 w-8 justify-self-center rounded-full text-sm transition-colors",
                           isSelected
                             ? "bg-primary text-white"
                             : cell.inMonth
-                              ? "text-white hover:bg-white/10"
-                              : "text-white/30 hover:bg-white/5",
+                              ? isPast
+                                ? "text-white/40 hover:bg-white/5"
+                                : "text-white hover:bg-white/10"
+                              : isPast
+                                ? "text-white/20 hover:bg-white/5"
+                                : "text-white hover:bg-white/10",
                           "border border-transparent"
                         )}
                       >
