@@ -58,6 +58,8 @@ export type LocalSettings = {
   telegramFolderPath: string;
   chromeThreads: string;
   chromeFolderPath: string;
+  themeEffect?: "none" | "winter" | "autumn" | "spring" | "summer";
+  themeSnowSpeed?: number;
 };
 
 export type LocalUser = {
@@ -111,6 +113,8 @@ const DEFAULT_SETTINGS: LocalSettings = {
   telegramFolderPath: "",
   chromeThreads: "1",
   chromeFolderPath: "",
+  themeEffect: "none",
+  themeSnowSpeed: 1,
 };
 const LOG_RETENTION_MS = 24 * 60 * 60 * 1000;
 

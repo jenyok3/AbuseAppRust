@@ -17,6 +17,7 @@ import { GlobalKeyboardControls } from "@/components/GlobalKeyboardControls";
 import { DailyReminderScheduler } from "@/components/DailyReminderScheduler";
 import { AppTray } from "@/components/AppTray";
 import { AuthOnboardingModal } from "@/components/AuthOnboardingModal";
+import { ThemeEffects } from "@/components/ThemeEffects";
 import { useEffect, useState } from "react";
 import { localStore, type LocalUser } from "@/lib/localStore";
 
@@ -76,17 +77,20 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider>
-          <div className="flex h-screen w-full overflow-hidden bg-black">
-            <Sidebar user={authUser} onTelegramLogin={handleTelegramLogin} onLogout={handleLogout} />
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              {/* Black Title Bar */}
-            <div className="title-bar app-draggable">
-              <div className="title-bar-content"></div>
-              <GlobalWindowControls />
+          <div className="relative flex h-screen w-full overflow-hidden bg-black">
+            <ThemeEffects />
+            <div className="relative z-10 flex h-full w-full">
+              <Sidebar user={authUser} onTelegramLogin={handleTelegramLogin} onLogout={handleLogout} />
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                {/* Black Title Bar */}
+                <div className="title-bar app-draggable">
+                  <div className="title-bar-content"></div>
+                  <GlobalWindowControls />
+                </div>
+                <Router />
+              </div>
             </div>
-            <Router />
           </div>
-        </div>
           <GlobalKeyboardControls />
           <DailyReminderScheduler />
           <AppTray />

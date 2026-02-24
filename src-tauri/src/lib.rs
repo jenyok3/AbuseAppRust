@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use sysinfo::System;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::{LogicalPosition, LogicalSize, WindowEvent};
+use tauri::WindowEvent;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -36,37 +36,6 @@ struct AppSettings {
     chrome_threads: String,
     #[serde(rename = "chromeFolderPath", default)]
     chrome_folder_path: String,
-    #[serde(rename = "window", default)]
-    window: WindowState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct WindowState {
-    #[serde(default)]
-    width: f64,
-    #[serde(default)]
-    height: f64,
-    #[serde(default)]
-    x: f64,
-    #[serde(default)]
-    y: f64,
-    #[serde(default)]
-    maximized: bool,
-    #[serde(default)]
-    valid: bool,
-}
-
-impl Default for WindowState {
-    fn default() -> Self {
-        Self {
-            width: 0.0,
-            height: 0.0,
-            x: 0.0,
-            y: 0.0,
-            maximized: false,
-            valid: false,
-        }
-    }
 }
 
 fn settings_file_path() -> PathBuf {
@@ -104,61 +73,6 @@ fn save_settings_to_disk(settings: &AppSettings) -> Result<(), String> {
     fs::write(path, body).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
-fn capture_window_state(window: &tauri::WebviewWindow) -> WindowState {
-    let mut state = WindowState::default();
-    let scale = window.scale_factor().unwrap_or(1.0);
-    if let Ok(size) = window.outer_size() {
-        let logical = size.to_logical::<f64>(scale);
-        state.width = logical.width;
-        state.height = logical.height;
-    }
-    if let Ok(pos) = window.outer_position() {
-        let logical = pos.to_logical::<f64>(scale);
-        state.x = logical.x;
-        state.y = logical.y;
-    }
-    if let Ok(maximized) = window.is_maximized() {
-        state.maximized = maximized;
-    }
-    state.valid = state.width > 0.0 && state.height > 0.0;
-    state
-}
-
-fn is_window_state_visible(window: &tauri::WebviewWindow, state: &WindowState) -> bool {
-    if !state.valid {
-        return false;
-    }
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let width = (state.width * scale).round() as i32;
-    let height = (state.height * scale).round() as i32;
-    if width < 200 || height < 200 {
-        return false;
-    }
-
-    let wx1 = (state.x * scale).round() as i32;
-    let wy1 = (state.y * scale).round() as i32;
-    let wx2 = wx1 + width;
-    let wy2 = wy1 + height;
-
-    if let Ok(monitors) = window.available_monitors() {
-        for monitor in monitors {
-            let pos = monitor.position();
-            let size = monitor.size();
-            let mx1 = pos.x;
-            let my1 = pos.y;
-            let mx2 = pos.x + size.width as i32;
-            let my2 = pos.y + size.height as i32;
-
-            let overlaps = wx2 > mx1 && wx1 < mx2 && wy2 > my1 && wy1 < my2;
-            if overlaps {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    true
-}
 
 fn is_likely_logged_out(tdata_path: &Path) -> bool {
     let entries = match fs::read_dir(tdata_path) {
@@ -250,17 +164,7 @@ pub fn run() {
     .setup(|app| {
         if let Some(window) = app.get_webview_window("main") {
             let is_autostart = std::env::args().any(|arg| arg == "--autostart");
-            let settings = load_settings_from_disk();
-            if is_window_state_visible(&window, &settings.window) {
-                if settings.window.maximized {
-                    let _ = window.maximize();
-                } else {
-                    let _ = window.set_size(LogicalSize::new(settings.window.width, settings.window.height));
-                    let _ = window.set_position(LogicalPosition::new(settings.window.x, settings.window.y));
-                }
-            } else {
-                let _ = window.center();
-            }
+            let _ = window.center();
             if !is_autostart {
                 let _ = window.show();
             }
@@ -269,10 +173,6 @@ pub fn run() {
             window.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let window_state = capture_window_state(&window_for_event);
-                    let mut settings = load_settings_from_disk();
-                    settings.window = window_state;
-                    let _ = save_settings_to_disk(&settings);
                     let _ = window_for_event.hide();
                 }
             });
