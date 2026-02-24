@@ -72,6 +72,21 @@
 }
 
 @layer utilities {
+  @keyframes snow-fall {
+    0% {
+      transform: translate3d(var(--drift), -10vh, 0);
+    }
+    100% {
+      transform: translate3d(calc(var(--drift) * -1), 110vh, 0);
+    }
+  }
+
+  .snowflake {
+    animation-name: snow-fall;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
   .text-glow {
     text-shadow: 0 0 20px rgba(157, 0, 255, 0.5);
   }

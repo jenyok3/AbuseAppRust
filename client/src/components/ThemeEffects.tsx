@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { localStore } from "@/lib/localStore";
 
 type ThemeEffect = "none" | "winter" | "autumn" | "spring" | "summer";
@@ -43,37 +43,96 @@ function Snowfall({ speed }: { speed: number }) {
     () =>
       Array.from({ length: 36 }, (_, i) => {
         const size = 2 + Math.random() * 3;
-        const left = Math.random() * 100;
-        const duration = 6 + Math.random() * 8;
-        const delay = Math.random() * -10;
         const opacity = 0.35 + Math.random() * 0.5;
-        const drift = (Math.random() * 20 - 10).toFixed(1);
-        return { id: i, size, left, duration, delay, opacity, drift };
+        const baseX = Math.random();
+        const fallSpeed = 18 + Math.random() * 40;
+        const driftAmp = 8 + Math.random() * 24;
+        const driftSpeed = 0.4 + Math.random() * 0.8;
+        const phase = Math.random() * Math.PI * 2;
+        return { id: i, size, opacity, baseX, fallSpeed, driftAmp, driftSpeed, phase };
       }),
     []
   );
+  const [positions, setPositions] = useState(() =>
+    flakes.map((flake) => ({
+      id: flake.id,
+      x: 0,
+      y: 0,
+    }))
+  );
+  const stateRef = useRef(
+    flakes.map((flake) => ({
+      id: flake.id,
+      y: Math.random() * 600,
+      baseX: flake.baseX,
+      phase: flake.phase,
+    }))
+  );
+  const sizeRef = useRef({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const updateSize = () => {
+      sizeRef.current = {
+        width: window.innerWidth || 0,
+        height: window.innerHeight || 0,
+      };
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
+
+  useEffect(() => {
+    let frame = 0;
+    let last = performance.now();
+
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const { width, height } = sizeRef.current;
+      const next = stateRef.current.map((state, index) => {
+        const flake = flakes[index];
+        let y = state.y + flake.fallSpeed * Math.max(0.2, speed) * dt;
+        let baseX = state.baseX;
+        let phase = state.phase + flake.driftSpeed * dt;
+        if (height > 0 && y > height + flake.size) {
+          y = -flake.size - Math.random() * height * 0.2;
+          baseX = Math.random();
+          phase = Math.random() * Math.PI * 2;
+        }
+        return { ...state, y, baseX, phase };
+      });
+      stateRef.current = next;
+
+      if (width > 0 && height > 0) {
+        setPositions(
+          next.map((state, index) => {
+            const flake = flakes[index];
+            const x = state.baseX * width + Math.sin(state.phase) * flake.driftAmp;
+            return { id: flake.id, x, y: state.y };
+          })
+        );
+      }
+
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [flakes, speed]);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-20 overflow-hidden">
-      <style>{`
-@keyframes snow-fall {
-  0% { transform: translate3d(var(--drift), -10vh, 0); }
-  100% { transform: translate3d(calc(var(--drift) * -1), 110vh, 0); }
-}
-`}</style>
       {flakes.map((flake) => (
         <span
           key={flake.id}
           style={{
-            left: `${flake.left}%`,
             width: `${flake.size}px`,
             height: `${flake.size}px`,
             opacity: flake.opacity,
-            animationDuration: `${Math.max(2, flake.duration / Math.max(0.5, speed))}s`,
-            animationDelay: `${flake.delay}s`,
-            ["--drift" as any]: `${flake.drift}vw`,
+            transform: `translate3d(${positions[flake.id]?.x ?? 0}px, ${positions[flake.id]?.y ?? 0}px, 0)`,
           }}
-          className="absolute top-0 rounded-full bg-white/80 blur-[0.2px] animate-[snow-fall_linear_infinite]"
+          className="snowflake absolute top-0 rounded-full bg-white/80 blur-[0.2px]"
         />
       ))}
     </div>

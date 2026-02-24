@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react";
+import { useRef, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,12 @@ export default function Settings() {
     themeEffect: "none" as "none" | "winter" | "autumn" | "spring" | "summer",
     themeSnowSpeed: 1,
   });
+  const snowTrackRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingSnow, setIsDraggingSnow] = useState(false);
+  const [snowDragValue, setSnowDragValue] = useState<number | null>(null);
+  const snowMin = 0.5;
+  const snowMax = 2;
+  const snowStep = 0.1;
 
   useEffect(() => {
     const settings = localStore.getSettings();
@@ -93,6 +100,7 @@ export default function Settings() {
       chromeThreads: section === "chrome" ? chromeThreads : prev.chromeThreads,
       chromeFolderPath: section === "chrome" ? chromeFolderPath : prev.chromeFolderPath,
       themeEffect: prev.themeEffect,
+      themeSnowSpeed: prev.themeSnowSpeed,
     }));
   };
 
@@ -128,6 +136,56 @@ export default function Settings() {
       ...prev,
       themeSnowSpeed: next,
     }));
+  };
+
+  const clampSnow = (value: number) => Math.min(snowMax, Math.max(snowMin, value));
+
+  const snapSnow = (value: number) => {
+    const snapped = Math.round((value - snowMin) / snowStep) * snowStep + snowMin;
+    return Number(clampSnow(snapped).toFixed(1));
+  };
+
+  const updateSnowFromClientX = (clientX: number) => {
+    const track = snowTrackRef.current;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = (clientX - rect.left) / rect.width;
+    const raw = snowMin + ratio * (snowMax - snowMin);
+    const preview = clampSnow(raw);
+    setSnowDragValue(preview);
+    setThemeSnowSpeed(preview);
+    const persisted = localStore.getSettings();
+    window.dispatchEvent(
+      new CustomEvent("settingsUpdated", {
+        detail: { ...persisted, themeSnowSpeed: preview },
+      })
+    );
+  };
+
+  useEffect(() => {
+    if (!isDraggingSnow) return;
+    const handleMove = (event: PointerEvent) => updateSnowFromClientX(event.clientX);
+    const handleUp = () => {
+      setIsDraggingSnow(false);
+      if (snowDragValue !== null) {
+        handleSnowSpeedChange(snapSnow(snowDragValue));
+        setSnowDragValue(null);
+      }
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+  }, [isDraggingSnow, snowDragValue]);
+
+  const handleSnowKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = themeSnowSpeed + (event.key === "ArrowRight" ? snowStep : -snowStep);
+    handleSnowSpeedChange(snapSnow(next));
   };
 
   const handleSelectTelegramFolder = async () => {
@@ -230,48 +288,43 @@ export default function Settings() {
                 {themeEffect === "winter" ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="text-xs text-white/50">{themeSnowSpeed.toFixed(1)}x</div>
+                      <div className="text-xs text-white/50">{(isDraggingSnow && snowDragValue !== null ? snowDragValue : themeSnowSpeed).toFixed(1)}x</div>
                     </div>
-                  <style>{`
-                    .snow-slider {
-                      -webkit-appearance: none;
-                      appearance: none;
-                      height: 6px;
-                      border-radius: 999px;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.6));
-                      outline: none;
-                    }
-                    .snow-slider::-webkit-slider-thumb {
-                      -webkit-appearance: none;
-                      appearance: none;
-                      width: 18px;
-                      height: 18px;
-                      border-radius: 999px;
-                      background: #e6f3ff;
-                      border: 1px solid rgba(255,255,255,0.5);
-                    }
-                    .snow-slider::-moz-range-thumb {
-                      width: 18px;
-                      height: 18px;
-                      border-radius: 999px;
-                      background: #e6f3ff;
-                      border: 1px solid rgba(255,255,255,0.5);
-                    }
-                    .snow-slider::-moz-range-track {
-                      height: 6px;
-                      border-radius: 999px;
-                      background: linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.6));
-                    }
-                  `}</style>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
-                    value={themeSnowSpeed}
-                    onChange={(e) => handleSnowSpeedChange(Number(e.target.value))}
-                    className="snow-slider w-full"
-                  />
+                    <div className="py-2">
+                      <div
+                        ref={snowTrackRef}
+                        role="slider"
+                        aria-label="Snow speed"
+                        aria-valuemin={snowMin}
+                        aria-valuemax={snowMax}
+                        aria-valuenow={isDraggingSnow && snowDragValue !== null ? snowDragValue : themeSnowSpeed}
+                        tabIndex={0}
+                        onKeyDown={handleSnowKeyDown}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          setIsDraggingSnow(true);
+                          updateSnowFromClientX(event.clientX);
+                        }}
+                        className="relative h-2 w-full rounded-full bg-white/10 cursor-pointer"
+                      >
+                        <div
+                          className={`h-full rounded-full ${isDraggingSnow ? "transition-none" : "transition-[width] duration-150 ease-out"}`}
+                          style={{
+                            width: `${(((isDraggingSnow && snowDragValue !== null ? snowDragValue : themeSnowSpeed) - snowMin) / (snowMax - snowMin)) * 100}%`,
+                            background:
+                              "linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.7))",
+                          }}
+                        />
+                        <div
+                          className={`absolute top-1/2 -translate-y-1/2 ${isDraggingSnow ? "transition-none" : "transition-[left] duration-150 ease-out"}`}
+                          style={{
+                            left: `calc(${(((isDraggingSnow && snowDragValue !== null ? snowDragValue : themeSnowSpeed) - snowMin) / (snowMax - snowMin)) * 100}% - 9px)`,
+                          }}
+                        >
+                          <div className="h-5 w-5 rounded-full bg-[#e6f3ff] border border-white/50 shadow-[0_0_10px_rgba(230,243,255,0.45)] transition-transform duration-150 ease-out hover:scale-105" />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : null}
               </div>

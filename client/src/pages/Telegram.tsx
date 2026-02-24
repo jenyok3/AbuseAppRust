@@ -1,6 +1,6 @@
 ﻿import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, ChevronDown } from "lucide-react";
+import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TelegramLink } from '../types';
@@ -44,6 +44,7 @@ export default function Telegram() {
   const [isLaunching, setIsLaunching] = useState(false);
   const [accountFilter, setAccountFilter] = useState<"all" | AccountStatus>("all"); // all, active, blocked, inactive
   const [hashtagFilter, setHashtagFilter] = useState<string>("all");
+  const [accountSearch, setAccountSearch] = useState<string>("");
   const [hashtagMeta, setHashtagMeta] = useState<LocalHashtagMeta[]>([]);
   const [isHashtagEditOpen, setIsHashtagEditOpen] = useState(false);
   const [hashtagEditTag, setHashtagEditTag] = useState<string>("");
@@ -65,6 +66,7 @@ export default function Telegram() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [editingProject, setEditingProject] = useState<any>(null);
+  const [isProjectSelectOpen, setIsProjectSelectOpen] = useState(false);
   const [isCustomLinkModalOpen, setIsCustomLinkModalOpen] = useState(false);
   const [isHashtagModalOpen, setIsHashtagModalOpen] = useState(false);
   const [hashtagModalAccountId, setHashtagModalAccountId] = useState<number | null>(null);
@@ -943,7 +945,7 @@ export default function Telegram() {
     if (!account) return;
     const next = Array.from(new Set([...getAccountHashtags(account), tag]));
     saveAccountHashtags(accountId, next);
-    logAction(`Додано хештег #${tag} до акаунта ${account.name || accountId}`);
+    logAction(`Додано хештег #${tag}`);
   };
 
   const handleRemoveHashtag = (accountId: number, tagToRemove: string) => {
@@ -951,7 +953,7 @@ export default function Telegram() {
     if (!account) return;
     const next = getAccountHashtags(account).filter((tag) => tag !== tagToRemove);
     saveAccountHashtags(accountId, next);
-    logAction(`Видалено хештег #${tagToRemove} з акаунта ${account.name || accountId}`);
+    logAction(`Видалено хештег #${tagToRemove}`);
   };
 
   const openHashtagModal = (accountId: number) => {
@@ -1033,7 +1035,7 @@ export default function Telegram() {
     if (hashtagFilter === normalized) {
       setHashtagFilter("all");
     }
-    logAction(`Видалено хештег #${normalized} з усіх акаунтів`);
+    logAction(`Видалено хештег #${normalized}`);
   };
 
   const handleSaveHashtagEdit = () => {
@@ -1167,6 +1169,8 @@ export default function Telegram() {
     }
   }, [hashtagFilter, hashtagOptions]);
 
+  const normalizedAccountSearch = normalizeText(accountSearch);
+
   // Filter accounts based on selected status + hashtag
   const filteredAccounts = accountsWithMeta
     .filter((account) => {
@@ -1189,6 +1193,12 @@ export default function Telegram() {
       const bName = String(b?.name || "");
       return aName.localeCompare(bName, "uk", { numeric: true, sensitivity: "base" });
     });
+
+  const visibleAccounts = filteredAccounts.filter((account) => {
+    if (!normalizedAccountSearch) return true;
+    const notesText = normalizeText(account?.notes);
+    return notesText.includes(normalizedAccountSearch);
+  });
   const allProfileIds = useMemo(() => getAllProfileIds(), [accounts]);
   const filteredProfileIds = useMemo(
     () =>
@@ -1624,6 +1634,7 @@ export default function Telegram() {
 
   // Function to add a new project
   const handleAddProject = () => {
+    setIsProjectSelectOpen(false);
     setModalMode('add');
     setEditingProject(null);
     setIsModalOpen(true);
@@ -1631,6 +1642,7 @@ export default function Telegram() {
 
   // Function to edit a project
   const handleEditProject = (projectName: string, projectData: any) => {
+    setIsProjectSelectOpen(false);
     setModalMode('edit');
     // Pass the actual project data for editing
     setEditingProject({
@@ -1642,6 +1654,7 @@ export default function Telegram() {
 
   // Function to delete a project
   const handleDeleteProject = (projectName: string) => {
+    setIsProjectSelectOpen(false);
     // Delete from projectStorage
     const success = projectStorage.deleteProject(projectName);
     
@@ -2043,7 +2056,12 @@ export default function Telegram() {
                   <div className="space-y-2">
                     <Label className="text-muted-foreground text-xs tracking-wider font-bold">Проєкт</Label>
                     <div className="flex items-center gap-2">
-                      <Select value={selectedProject} onValueChange={handleProjectChange}>
+                      <Select
+                        value={selectedProject}
+                        onValueChange={handleProjectChange}
+                        open={isProjectSelectOpen}
+                        onOpenChange={setIsProjectSelectOpen}
+                      >
                         <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/20 text-white flex-1">
                           <SelectValue placeholder="Виберіть проєкт" />
                         </SelectTrigger>
@@ -2363,105 +2381,87 @@ export default function Telegram() {
                 Список акаунтів
               </h3>
               <div className="flex items-center gap-2">
-                <Select value={hashtagFilter} onValueChange={setHashtagFilter}>
-                  <SelectTrigger
-                    hideIcon
-                    className="h-9 w-auto min-w-[120px] justify-start gap-2 bg-black/40 border-white/10 text-white hover:border-white/10 focus:border-white/10 data-[state=open]:border-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
-                  >
-                    <SelectValue placeholder="Фільтр за #" />
-                    {hashtagFilter === "all" ? (
-                      <ChevronDown className="h-4 w-4 opacity-50" />
-                    ) : (
-                      <button
-                        type="button"
-                        aria-label="Очистити фільтр за #"
-                        className="ml-2 inline-flex h-6 w-6 items-center justify-center rounded-sm text-white/70 hover:text-white hover:bg-white/10"
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setHashtagFilter("all");
-                          }
-                        }}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setHashtagFilter("all");
-                        }}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                  <Input
+                    value={accountSearch}
+                    onChange={(e) => setAccountSearch(e.target.value)}
+                    placeholder="Пошук у нотатках.."
+                    className="h-9 w-60 bg-black/40 border-white/10 pl-9 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20"
+                  />
+                  <Select value={hashtagFilter} onValueChange={setHashtagFilter}>
+                    <SelectTrigger
+                      hideIcon
+                      title={hashtagFilter === "all" ? "Фільтр за #" : `Фільтр: #${hashtagFilter}`}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 items-center justify-center rounded-md bg-transparent border-0 p-0 text-white/60 hover:text-white hover:bg-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
+                    >
+                      <Filter className="h-4 w-4" strokeWidth={2.2} />
+                      {hashtagFilter !== "all" ? (
+                        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary shadow-[0_0_8px_rgba(157,0,255,0.6)]" />
+                      ) : null}
+                    </SelectTrigger>
+                    <SelectContent className="bg-black/95 border-white/10 text-white">
+                      <SelectItem
+                        value="all"
+                        className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                       >
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
-                  </SelectTrigger>
-                  <SelectContent
-                    className="bg-black border-white/10 text-white !w-auto !min-w-0"
-                    viewportClassName="!w-auto !min-w-0"
-                  >
-                    <SelectItem value="all" className="focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white">
-                      Фільтр за #
-                    </SelectItem>
-                    {hashtagOptions.map((tag) => {
-                      const meta = getHashtagMetaItem(tag);
-                      return (
-                        <div key={tag} className="group relative">
-                          <SelectItem
-                            value={tag}
-                            className="focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white pr-12"
-                          >
-                            <div className="flex items-center w-full">
-                              <span className="flex-1 max-w-[140px] truncate">#{tag}</span>
-                              {meta?.link ? (
-                                <span className="text-[10px] text-primary/70 ml-2">link</span>
-                              ) : null}
+                        Усі #
+                      </SelectItem>
+                      {hashtagOptions.map((tag) => {
+                        const meta = getHashtagMetaItem(tag);
+                        return (
+                          <div key={tag} className="group relative">
+                            <SelectItem
+                              value={tag}
+                              className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white pr-16"
+                            >
+                              <div className="flex items-center w-full">
+                                <span className="flex-1 max-w-[120px] truncate">#{tag}</span>
+                                {meta?.link ? (
+                                  <span className="text-[10px] text-primary/70 ml-2">link</span>
+                                ) : null}
+                              </div>
+                            </SelectItem>
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openHashtagEditModal(tag);
+                                }}
+                              >
+                                <Edit className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 hover:bg-red-500/20 text-red-400/70 hover:text-red-400"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteHashtag(tag);
+                                }}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
                             </div>
-                          </SelectItem>
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                openHashtagEditModal(tag);
-                              }}
-                            >
-                              <Edit className="w-3 h-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 hover:bg-red-500/20 text-red-400/70 hover:text-red-400"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleDeleteHashtag(tag);
-                              }}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
                 {hashtagFilter !== "all" && selectedHashtagMeta?.link ? (
                   <Button
                     onClick={handleLaunchByHashtagFilter}
@@ -2502,8 +2502,8 @@ export default function Telegram() {
                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-3" />
                     <p className="text-sm text-slate-500">Завантаження акаунтів...</p>
                   </motion.div>
-                ) : filteredAccounts.length > 0 ? (
-                  filteredAccounts.map((account, index) => {
+                ) : visibleAccounts.length > 0 ? (
+                  visibleAccounts.map((account, index) => {
                     const statusLabel =
                       accountStatusLabels[account.effectiveStatus as AccountStatus] ?? account.effectiveStatus;
                     return (
@@ -2516,7 +2516,7 @@ export default function Telegram() {
                         duration: 0.25,
                         ease: "easeOut",
                       }}
-                      className="relative bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-all cursor-pointer"
+                      className="group relative bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-all cursor-pointer"
                     >
                       {account.effectiveStatus === accountStatus.active && (
                         <span
@@ -2532,22 +2532,22 @@ export default function Telegram() {
                               <Button
                                 size="icon"
                                 variant="ghost"
-                                className="h-6 w-6 rounded-md border-white/10 hover:bg-white/10 hover:border-white/20 text-xs font-bold shrink-0"
+                                className="h-6 w-6 rounded-md text-xs font-bold shrink-0 text-white/40 hover:text-white/80 hover:bg-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
                                 onClick={() => openHashtagModal(account.id)}
                                 title="Додати хештег"
                               >
                                 #
                               </Button>
                             </div>
-                            {Array.isArray(account.hashtags) && account.hashtags.length > 0 && (
+                            {Array.isArray(account.hashtags) && account.hashtags.length > 0 ? (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {account.hashtags.map((tag: string) => (
                                   <div
                                     key={`${account.id}-${tag}`}
-                                    className="relative inline-flex items-center justify-center rounded-full bg-primary/20 text-primary pl-2 pr-2 group-hover:pr-5 py-0.5 text-[10px] group hover:bg-primary/30 transition-[color,background-color,padding]"
+                                    className="relative inline-flex items-center justify-center rounded-full bg-primary/20 text-primary pl-2 pr-4 py-0.5 text-[10px] group hover:bg-primary/30 transition-[color,background-color]"
                                     title={`#${tag}`}
                                   >
-                                    <span className="leading-none transition-transform group-hover:-translate-x-1.5">#{tag}</span>
+                                    <span className="leading-none">#{tag}</span>
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveHashtag(account.id, tag)}
@@ -2560,6 +2560,8 @@ export default function Telegram() {
                                   </div>
                                 ))}
                               </div>
+                            ) : (
+                              <div className="mt-1 h-5" />
                             )}
                           </div>
                           <div className="flex items-center gap-1">
@@ -2574,7 +2576,7 @@ export default function Telegram() {
                         </div>
                         <div className="flex gap-2">
                           <Input
-                            placeholder="Додати нотатки..."
+                            placeholder="Додати нотатку.."
                             className="bg-black/40 border-white/5 text-white text-xs flex-1 placeholder:text-gray-500"
                             defaultValue={account.notes ?? ""}
                             onBlur={(e) => {
@@ -2647,7 +2649,7 @@ export default function Telegram() {
                     <p className="text-sm text-slate-500">
                       {accountFilter === accountStatus.blocked 
                         ? "Усі акаунти в порядку" 
-                        : "Спробуйте змінити фільтр"
+                        : "Спробуйте змінити фільтр або пошук"
                       }
                     </p>
                   </motion.div>
