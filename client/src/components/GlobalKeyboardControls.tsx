@@ -16,11 +16,9 @@ export function GlobalKeyboardControls() {
       }));
     };
 
-    let localListenerAttached = false;
     let cleanupGlobalShortcut: (() => void) | null = null;
 
     const attachLocalListener = () => {
-      if (localListenerAttached) return;
       const handleKeyDown = (event: KeyboardEvent) => {
         if (event.key === 'F6' || (event.key === '6' && event.shiftKey)) {
           event.preventDefault();
@@ -30,23 +28,33 @@ export function GlobalKeyboardControls() {
       };
       document.addEventListener('keydown', handleKeyDown, true);
       window.addEventListener('keydown', handleKeyDown, true);
-      localListenerAttached = true;
-      cleanupGlobalShortcut = () => {
+      const cleanupLocal = () => {
         document.removeEventListener('keydown', handleKeyDown, true);
         window.removeEventListener('keydown', handleKeyDown, true);
       };
+      return cleanupLocal;
     };
 
     const registerGlobalShortcut = async () => {
+      let cleanupLocal: (() => void) | null = null;
       try {
         const mod = await import('@tauri-apps/plugin-global-shortcut');
+        cleanupLocal = attachLocalListener();
         await mod.register('F6', dispatchF6);
         cleanupGlobalShortcut = () => {
           mod.unregister('F6').catch(() => {});
+          if (cleanupLocal) {
+            cleanupLocal();
+          }
         };
       } catch (error) {
         console.warn('Global shortcut unavailable, using local listener.', error);
-        attachLocalListener();
+        cleanupLocal = attachLocalListener();
+        cleanupGlobalShortcut = () => {
+          if (cleanupLocal) {
+            cleanupLocal();
+          }
+        };
       }
     };
 

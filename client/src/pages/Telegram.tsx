@@ -1,6 +1,6 @@
 ﻿import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, Search, Filter } from "lucide-react";
+import { Rocket, Loader2, ExternalLink, Plus, Pencil, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TelegramLink } from '../types';
@@ -35,6 +35,7 @@ export default function Telegram() {
   const queryClient = useQueryClient();
   const { data: recentActions = [] } = useLogs();
   const { mutate: createLog } = useCreateLog();
+  const LAUNCH_STALE_MS = 24 * 60 * 60 * 1000;
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [customLink, setCustomLink] = useState<TelegramLink | null>(null);
   const [startRange, setStartRange] = useState("");
@@ -45,6 +46,7 @@ export default function Telegram() {
   const [accountFilter, setAccountFilter] = useState<"all" | AccountStatus>("all"); // all, active, blocked, inactive
   const [hashtagFilter, setHashtagFilter] = useState<string>("all");
   const [accountSearch, setAccountSearch] = useState<string>("");
+  const [notesFilter, setNotesFilter] = useState<"all" | "with">("all");
   const [hashtagMeta, setHashtagMeta] = useState<LocalHashtagMeta[]>([]);
   const [isHashtagEditOpen, setIsHashtagEditOpen] = useState(false);
   const [hashtagEditTag, setHashtagEditTag] = useState<string>("");
@@ -70,7 +72,7 @@ export default function Telegram() {
   const [isCustomLinkModalOpen, setIsCustomLinkModalOpen] = useState(false);
   const [isHashtagModalOpen, setIsHashtagModalOpen] = useState(false);
   const [hashtagModalAccountId, setHashtagModalAccountId] = useState<number | null>(null);
-  const [hashtagInput, setHashtagInput] = useState("#");
+  const [hashtagInput, setHashtagInput] = useState("");
   const [openAccounts, setOpenAccounts] = useState<Map<number, number>>(new Map()); // accountId -> PID
   const [realStats, setRealStats] = useState<{running: number, blocked: number, total: number}>({ running: 0, blocked: 0, total: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
@@ -133,6 +135,11 @@ export default function Telegram() {
     const text = String(value ?? "").trim();
     if (!text) return false;
     return /(?:\([^)]+\)\s*-\s*(?:active|inactive|blocked))(?:\s*\([^)]+\))?$/i.test(text);
+  };
+  const hasUserNotes = (account: any): boolean => {
+    const text = String(account?.notes ?? "").trim();
+    if (!text) return false;
+    return !isSystemGeneratedNote(text);
   };
   const getAccountHashtags = (account: any): string[] => {
     const raw = Array.isArray(account?.hashtags) ? account.hashtags : [];
@@ -219,6 +226,10 @@ export default function Telegram() {
         });
 
         localStore.saveAccounts(nextAccounts);
+        const scopeKey = localStore.getSettings().telegramFolderPath || "";
+        if (scopeKey) {
+          localStore.syncAccountMetaFromAccounts(scopeKey, nextAccounts);
+        }
 
         const usedPids = new Set<number>();
         const mappedByProcess = new Map<number, number>();
@@ -380,14 +391,14 @@ export default function Telegram() {
   useEffect(() => {
     console.log('Telegram page mounted, loading settings...');
     
-    const loadAccounts = () => {
+    const loadAccounts = (reason: "init" | "settings" | "silent" = "silent") => {
       setIsAccountsLoading(true);
       const settings = localStore.getSettings();
       console.log('Loaded settings:', settings);
 
       if (settings.telegramFolderPath) {
         console.log('Loading accounts from folder:', settings.telegramFolderPath);
-        loadAccountsFromFolder(settings.telegramFolderPath);
+        loadAccountsFromFolder(settings.telegramFolderPath, reason);
       } else {
         console.log('No telegram folder path found, loading default accounts');
         loadDefaultAccounts();
@@ -416,7 +427,7 @@ export default function Telegram() {
     };
 
     // Initial load
-    loadAccounts();
+    loadAccounts("init");
     loadLinks();
     loadRealStats();
 
@@ -441,7 +452,7 @@ export default function Telegram() {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'appSettings') {
         console.log('Settings changed, reloading accounts...');
-        loadAccounts();
+        loadAccounts("settings");
         loadRealStats(); // Reload stats too
       }
     };
@@ -449,7 +460,7 @@ export default function Telegram() {
     // Also listen for custom events for same-tab updates
     const handleSettingsUpdate = () => {
       console.log('Settings updated event received, reloading accounts...');
-      loadAccounts();
+      loadAccounts("settings");
       loadRealStats(); // Reload stats too
     };
 
@@ -541,6 +552,50 @@ export default function Telegram() {
           }
         } catch (error) {
           console.warn("Failed to validate saved launch PIDs:", error);
+        }
+      })();
+    }
+
+    if (saved) {
+      (async () => {
+        try {
+          const ageMs = Date.now() - Number(saved.updatedAt ?? Date.now());
+          if (ageMs < LAUNCH_STALE_MS) return;
+
+          const running = await getRunningTelegramProcesses() as any[];
+          const runningPidSet = new Set<number>(
+            running
+              .map((p: any) => Number(p?.pid))
+              .filter((pid: number) => Number.isFinite(pid))
+          );
+          const hasSavedRunning = Array.isArray(saved.launchedPids)
+            ? saved.launchedPids.some((pid) => runningPidSet.has(Number(pid)))
+            : false;
+
+          if (hasSavedRunning) return;
+
+          const hadQueue = (saved.pendingProfiles?.length || 0) > 0 || (saved.launchedPids?.length || 0) > 0;
+          setSelectedProject("");
+          setStartRange("");
+          setEndRange("");
+          setIsMix(true);
+          setLaunchedPids([]);
+          setPendingProfiles([]);
+          setBatchSize(1);
+          setLaunchParams(null);
+          setTotalProfiles(0);
+          setLaunchMode(null);
+          setLaunchProgressCount(0);
+          localStore.clearTelegramLaunchState();
+
+          if (hadQueue) {
+            toast({
+              title: "Черга очищена",
+              description: "Застарілий прогрес запуску було скинуто.",
+            });
+          }
+        } catch (error) {
+          console.warn("Failed to auto-clear stale launch queue:", error);
         }
       })();
     }
@@ -671,7 +726,10 @@ export default function Telegram() {
     }
   };
   // Function to load accounts from folder using Tauri API
-  const loadAccountsFromFolder = async (folderPath: string) => {
+  const loadAccountsFromFolder = async (
+    folderPath: string,
+    reason: "init" | "settings" | "silent" = "silent"
+  ) => {
     try {
       setIsAccountsLoading(true);
       console.log('Loading accounts from:', folderPath);
@@ -685,8 +743,7 @@ export default function Telegram() {
       console.log('Directories found:', directories);
       
       let allAccounts: any[] = [];
-      const existingAccounts = localStore.getAccounts();
-      const existingById = new Map(existingAccounts.map((account) => [account.id, account]));
+      const existingById = localStore.getAccountMetaMap(folderPath);
       
       // Check each directory for tdata folders
       for (const dir of directories) {
@@ -766,11 +823,11 @@ export default function Telegram() {
               const daysOld = fileAge / (1000 * 60 * 60 * 24);
               const accountStatusValue = daysOld < 1 ? accountStatus.active : accountStatus.blocked; // Only active if modified today
               const accountId = stableAccountId(`${sessionFile.path}|session`);
-              const existing = existingById.get(accountId) as any;
-              const nextNotes =
-                typeof existing?.notes === "string" && !isSystemGeneratedNote(existing.notes)
-                  ? existing.notes
-                  : "";
+                const existing = existingById.get(accountId) as any;
+                const nextNotes =
+                  typeof existing?.notes === "string" && !isSystemGeneratedNote(existing.notes)
+                    ? existing.notes
+                    : "";
               
               console.log(`Session account ${sessionFile.name.replace('.session', '')}: ${daysOld.toFixed(1)} days old -> ${accountStatus}`);
               
@@ -858,11 +915,31 @@ export default function Telegram() {
       
       setAccounts(allAccounts);
       localStore.saveAccounts(allAccounts);
+      localStore.syncAccountMetaFromAccounts(folderPath, allAccounts);
       
-      toast({
-        title: "Акаунти завантажено",
-        description: `Знайдено ${allAccounts.length} Telegram-акаунтів у папці ${folderPath}`,
-      });
+      const shouldToast = (() => {
+        if (reason === "settings") return true;
+        if (reason !== "init") return false;
+        try {
+          const key = "abuseapp.accountsToastShown";
+          const already = sessionStorage.getItem(key) === "1";
+          if (!already) {
+            sessionStorage.setItem(key, "1");
+            return true;
+          }
+        } catch {
+          // ignore storage errors, fall back to showing once
+          return true;
+        }
+        return false;
+      })();
+
+      if (shouldToast) {
+        toast({
+          title: "Акаунти завантажено",
+          description: `Знайдено ${allAccounts.length} Telegram-акаунтів у папці ${folderPath}`,
+        });
+      }
       
     } catch (error) {
       console.error('Failed to load accounts from folder:', error);
@@ -898,7 +975,8 @@ export default function Telegram() {
           acc.id === accountId ? { ...acc, notes } : acc
         )
       );
-      localStore.updateAccountNotes(accountId, notes);
+      const scopeKey = localStore.getSettings().telegramFolderPath || "";
+      localStore.updateAccountNotes(accountId, notes, scopeKey);
       logAction(`Оновлено нотатку для акаунта ${accountId}`);
 
       toast({
@@ -934,6 +1012,10 @@ export default function Telegram() {
         acc.id === accountId ? { ...acc, hashtags: normalized } : acc
       );
       localStore.saveAccounts(nextAccounts);
+      const scopeKey = localStore.getSettings().telegramFolderPath || "";
+      if (scopeKey) {
+        localStore.syncAccountMetaFromAccounts(scopeKey, nextAccounts);
+      }
       return nextAccounts;
     });
   };
@@ -958,14 +1040,14 @@ export default function Telegram() {
 
   const openHashtagModal = (accountId: number) => {
     setHashtagModalAccountId(accountId);
-    setHashtagInput("#");
+    setHashtagInput("");
     setIsHashtagModalOpen(true);
   };
 
   const closeHashtagModal = () => {
     setIsHashtagModalOpen(false);
     setHashtagModalAccountId(null);
-    setHashtagInput("#");
+    setHashtagInput("");
   };
 
   const submitHashtagModal = () => {
@@ -1004,7 +1086,7 @@ export default function Telegram() {
   const openHashtagEditModal = (tag: string) => {
     const meta = getHashtagMetaItem(tag);
     setHashtagEditTag(tag);
-    setHashtagEditName(`#${tag}`);
+    setHashtagEditName(tag);
     setHashtagEditLink(meta?.link ?? "");
     setHashtagEditErrors([]);
     setIsHashtagEditOpen(true);
@@ -1028,6 +1110,10 @@ export default function Telegram() {
         return { ...acc, hashtags: tags };
       });
       localStore.saveAccounts(nextAccounts);
+      const scopeKey = localStore.getSettings().telegramFolderPath || "";
+      if (scopeKey) {
+        localStore.syncAccountMetaFromAccounts(scopeKey, nextAccounts);
+      }
       return nextAccounts;
     });
 
@@ -1068,6 +1154,10 @@ export default function Telegram() {
           return { ...acc, hashtags: merged };
         });
         localStore.saveAccounts(nextAccounts);
+        const scopeKey = localStore.getSettings().telegramFolderPath || "";
+        if (scopeKey) {
+          localStore.syncAccountMetaFromAccounts(scopeKey, nextAccounts);
+        }
         return nextAccounts;
       });
 
@@ -1170,6 +1260,7 @@ export default function Telegram() {
   }, [hashtagFilter, hashtagOptions]);
 
   const normalizedAccountSearch = normalizeText(accountSearch);
+  const notesFilterValue = "__with_notes__";
 
   // Filter accounts based on selected status + hashtag
   const filteredAccounts = accountsWithMeta
@@ -1195,6 +1286,7 @@ export default function Telegram() {
     });
 
   const visibleAccounts = filteredAccounts.filter((account) => {
+    if (notesFilter === "with" && !hasUserNotes(account)) return false;
     if (!normalizedAccountSearch) return true;
     const notesText = normalizeText(account?.notes);
     return notesText.includes(normalizedAccountSearch);
@@ -1776,7 +1868,25 @@ export default function Telegram() {
       setIsLaunching(true);
 
       if (launchedPids.length > 0) {
-        await closeTelegramProcesses(launchedPids);
+        const closingPids = [...launchedPids];
+        await closeTelegramProcesses(closingPids);
+        try {
+          const running = await getRunningTelegramProcesses() as any[];
+          const runningSet = new Set<number>(
+            running
+              .map((p: any) => Number(p?.pid))
+              .filter((pid: number) => Number.isFinite(pid))
+          );
+          const stillRunning = closingPids.filter((pid) => runningSet.has(pid));
+          if (stillRunning.length > 0) {
+            toast({
+              title: "Не всі акаунти закрито",
+              description: "Деякі процеси залишилися. Можливо, вони поза шляхом з налаштувань або Telegram не відповів.",
+            });
+          }
+        } catch (error) {
+          console.warn("Failed to verify closed Telegram processes:", error);
+        }
         setLaunchedPids([]);
       }
 
@@ -2054,7 +2164,7 @@ export default function Telegram() {
 
                 <div className="space-y-4 w-full">
                   <div className="space-y-2">
-                    <Label className="text-muted-foreground text-xs tracking-wider font-bold">Проєкт</Label>
+                    <Label className="text-sm font-normal text-muted-foreground">Проєкт</Label>
                     <div className="flex items-center gap-2">
                       <Select
                         value={selectedProject}
@@ -2065,7 +2175,10 @@ export default function Telegram() {
                         <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/20 text-white flex-1">
                           <SelectValue placeholder="Виберіть проєкт" />
                         </SelectTrigger>
-                        <SelectContent className="bg-black border-white/10 text-white min-w-[300px]">
+                        <SelectContent
+                          className="bg-black border-white/10 text-white min-w-[300px]"
+                          onPointerLeave={() => setIsProjectSelectOpen(false)}
+                        >
                           {selectedProject.startsWith("#") ? (
                             <SelectItem
                               key="__hashtag_project__"
@@ -2118,7 +2231,7 @@ export default function Telegram() {
                                     handleEditProject(name, link);
                                   }}
                                 >
-                                  <Edit className="w-3 h-3" />
+                                  <Pencil className="w-3 h-3" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -2164,7 +2277,7 @@ export default function Telegram() {
 
                   <div className="grid grid-cols-2 gap-3 max-w-[18rem]">
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs tracking-wider font-bold">Початок</Label>
+                      <Label className="text-sm font-normal text-muted-foreground">Початок</Label>
                       <Input 
                         id="start-range-input"
                         type="number" 
@@ -2185,7 +2298,7 @@ export default function Telegram() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs tracking-wider font-bold">Кінець</Label>
+                      <Label className="text-sm font-normal text-muted-foreground">Кінець</Label>
                       <Input 
                         id="end-range-input"
                         type="number" 
@@ -2245,6 +2358,14 @@ export default function Telegram() {
                         >
                           {batchActionLabel}
                         </Button>
+                        {canContinueBatch ? (
+                          <Button
+                            onClick={handleCloseAllOpenedAccounts}
+                            className="h-10 min-w-[120px] rounded-xl border border-white/10 text-white/80 hover:text-white hover:bg-white/10 focus-visible:ring-0"
+                          >
+                            Скасувати
+                          </Button>
+                        ) : null}
                       </div>
                       <div className="text-[11px] text-muted-foreground/70">
                         F6 працює як швидке продовження.
@@ -2284,7 +2405,9 @@ export default function Telegram() {
                   ) : (
                     <ScrollArea className="flex-1 min-h-0">
                       <div className="space-y-2">
-                        {recentActions.slice(0, 24).map((entry: any) => (
+                        {recentActions.slice(0, 24).map((entry: any) => {
+                          const message = String(entry?.message ?? "").trim().replace(/\.$/, "");
+                          return (
                           <div
                             key={entry.id}
                             className="flex gap-3 text-sm font-mono group hover:bg-white/5 p-2 rounded-lg transition-colors"
@@ -2293,10 +2416,10 @@ export default function Telegram() {
                               [{format(new Date(entry.timestamp), "HH:mm:ss")}]
                             </span>
                             <span className="text-muted-foreground group-hover:text-white transition-colors break-all">
-                              {entry.message}
+                              {message}
                             </span>
                           </div>
-                        ))}
+                        )})}
                       </div>
                     </ScrollArea>
                   )}
@@ -2389,14 +2512,31 @@ export default function Telegram() {
                     placeholder="Пошук у нотатках.."
                     className="h-9 w-60 bg-black/40 border-white/10 pl-9 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20"
                   />
-                  <Select value={hashtagFilter} onValueChange={setHashtagFilter}>
+                  <Select
+                    value={notesFilter === "with" ? notesFilterValue : hashtagFilter}
+                    onValueChange={(value) => {
+                      if (value === notesFilterValue) {
+                        setNotesFilter("with");
+                        setHashtagFilter("all");
+                        return;
+                      }
+                      setNotesFilter("all");
+                      setHashtagFilter(value);
+                    }}
+                  >
                     <SelectTrigger
                       hideIcon
-                      title={hashtagFilter === "all" ? "Фільтр за #" : `Фільтр: #${hashtagFilter}`}
+                      title={
+                        notesFilter === "with"
+                          ? "Фільтр: З нотатками"
+                          : hashtagFilter === "all"
+                            ? "Фільтр за #"
+                            : `Фільтр: #${hashtagFilter}`
+                      }
                       className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 items-center justify-center rounded-md bg-transparent border-0 p-0 text-white/60 hover:text-white hover:bg-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
                     >
                       <Filter className="h-4 w-4" strokeWidth={2.2} />
-                      {hashtagFilter !== "all" ? (
+                      {notesFilter === "with" || hashtagFilter !== "all" ? (
                         <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary shadow-[0_0_8px_rgba(157,0,255,0.6)]" />
                       ) : null}
                     </SelectTrigger>
@@ -2405,7 +2545,13 @@ export default function Telegram() {
                         value="all"
                         className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                       >
-                        Усі #
+                        Усі
+                      </SelectItem>
+                      <SelectItem
+                        value={notesFilterValue}
+                        className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
+                      >
+                        З нотатками
                       </SelectItem>
                       {hashtagOptions.map((tag) => {
                         const meta = getHashtagMetaItem(tag);
@@ -2426,7 +2572,7 @@ export default function Telegram() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
+                                className="h-5 w-5 p-0 hover:bg-white/10 text-white/70 hover:text-white"
                                 onMouseDown={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -2437,12 +2583,12 @@ export default function Telegram() {
                                   openHashtagEditModal(tag);
                                 }}
                               >
-                                <Edit className="w-3 h-3" />
+                                <Pencil className="w-2.5 h-2.5" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 hover:bg-red-500/20 text-red-400/70 hover:text-red-400"
+                                className="h-5 w-5 p-0 hover:bg-red-500/20 text-red-400/70 hover:text-red-400"
                                 onMouseDown={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -2453,16 +2599,16 @@ export default function Telegram() {
                                   handleDeleteHashtag(tag);
                                 }}
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-2.5 h-2.5" />
                               </Button>
                             </div>
                           </div>
                         );
                       })}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {hashtagFilter !== "all" && selectedHashtagMeta?.link ? (
+                  </SelectContent>
+                </Select>
+              </div>
+              {hashtagFilter !== "all" && selectedHashtagMeta?.link ? (
                   <Button
                     onClick={handleLaunchByHashtagFilter}
                     disabled={isLaunching || filteredProfileIds.length === 0}
@@ -2644,14 +2790,9 @@ export default function Telegram() {
                       <SearchX className="w-16 h-16 text-slate-400 mb-4" />
                     )}
                     <p className="text-xl font-medium text-slate-300 mb-2">
-                      {accountFilter === accountStatus.blocked ? "Чисто! Жодного бану" : "Немає акаунтів"}
+                      {accountFilter === accountStatus.blocked ? "Жодного бану" : "Немає акаунтів"}
                     </p>
-                    <p className="text-sm text-slate-500">
-                      {accountFilter === accountStatus.blocked 
-                        ? "Усі акаунти в порядку" 
-                        : "Спробуйте змінити фільтр або пошук"
-                      }
-                    </p>
+                    {accountFilter !== accountStatus.blocked ? null : null}
                   </motion.div>
                 )}
               </>
@@ -2688,23 +2829,27 @@ export default function Telegram() {
             </button>
           </div>
           <div className="space-y-3">
-            <Label className="text-muted-foreground text-xs tracking-wider font-bold">
+            <Label className="text-sm font-normal text-muted-foreground">
               {hashtagModalAccount ? `Акаунт: ${hashtagModalAccount.name}` : "Оберіть акаунт"}
             </Label>
-            <Input
-              autoFocus
-              autoComplete="new-password"
-              value={hashtagInput}
-              onChange={(e) => setHashtagInput(e.target.value)}
-              placeholder="#зроблено"
-              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  submitHashtagModal();
-                }
-              }}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/50">
+                #
+              </span>
+              <Input
+                autoFocus
+                autoComplete="new-password"
+                value={hashtagInput}
+                onChange={(e) => setHashtagInput(e.target.value)}
+                className="bg-black/50 border-white/10 h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/10"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitHashtagModal();
+                  }
+                }}
+              />
+            </div>
           </div>
           <div className="flex gap-4 pt-6">
             <Button
@@ -2738,19 +2883,23 @@ export default function Telegram() {
           </div>
           <div className="space-y-6">
             <div className="space-y-3">
-              <Label className="text-muted-foreground text-xs tracking-wider font-bold">
+              <Label className="text-sm font-normal text-muted-foreground">
                 Назва хештегу
               </Label>
-              <Input
-                autoComplete="new-password"
-                value={hashtagEditName}
-                onChange={(e) => setHashtagEditName(e.target.value)}
-                placeholder="#зроблено"
-                className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/50">
+                  #
+                </span>
+                <Input
+                  autoComplete="new-password"
+                  value={hashtagEditName}
+                  onChange={(e) => setHashtagEditName(e.target.value)}
+                  className="bg-black/50 border-white/10 h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/10"
+                />
+              </div>
             </div>
             <div className="space-y-3">
-              <Label className="text-muted-foreground text-xs tracking-wider font-bold">
+              <Label className="text-sm font-normal text-muted-foreground">
                 Посилання на проєкт (необов'язково)
               </Label>
               <Input

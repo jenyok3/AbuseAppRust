@@ -5,6 +5,11 @@ use sysinfo::System;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::WindowEvent;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+
+#[cfg(windows)]
+use windows_sys::Win32::System::Console::FreeConsole;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -153,7 +158,21 @@ fn list_running_telegram_processes() -> Vec<(u32, String, String)> {
         .collect()
 }
 
+fn normalize_path_for_match(value: &str) -> String {
+    value.to_lowercase().replace('\\', "/").trim_end_matches('/').to_string()
+}
+
 pub fn run() {
+  let is_autostart = std::env::args().any(|arg| arg == "--autostart");
+
+  #[cfg(windows)]
+  if is_autostart {
+      // Detach from console when started via autostart on Windows.
+      unsafe {
+          FreeConsole();
+      }
+  }
+
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -161,9 +180,49 @@ pub fn run() {
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
         Some(vec!["--autostart".into()]),
     ))
-    .setup(|app| {
+    .setup(move |app| {
+        // Native tray to ensure it exists even when the webview is not loaded.
+        let open_item = MenuItem::with_id(app, "open", "Відкрити", true, Option::<&str>::None)?;
+        let quit_item = MenuItem::with_id(app, "quit", "Вийти", true, Option::<&str>::None)?;
+        let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+
+        let tray_icon = TrayIconBuilder::new()
+            .icon(app.default_window_icon().unwrap().clone())
+            .menu(&tray_menu)
+            .show_menu_on_left_click(false)
+            .tooltip("AbuseApp")
+            .on_menu_event(|app, event| match event.id().as_ref() {
+                "open" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            })
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click { button, button_state, .. } = event {
+                    // Only react to left click so right click can open the tray menu.
+                    if button == tauri::tray::MouseButton::Left
+                        && button_state == tauri::tray::MouseButtonState::Up
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+            })
+            .build(app)?;
+
+        // Keep tray alive for the lifetime of the app.
+        app.manage(tray_icon);
+
         if let Some(window) = app.get_webview_window("main") {
-            let is_autostart = std::env::args().any(|arg| arg == "--autostart");
             let _ = window.center();
             if !is_autostart {
                 let _ = window.show();
@@ -940,10 +999,29 @@ async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> 
 #[tauri::command]
 async fn close_telegram_processes(pids: Vec<u32>) -> Result<String, String> {
     use std::process::Command;
-    
+
+    let settings = load_settings_from_disk();
+    let root_raw = settings.telegram_folder_path.trim().to_string();
+    if root_raw.is_empty() {
+        return Err("Telegram folder path is not configured".to_string());
+    }
+    let root = normalize_path_for_match(&root_raw);
+
+    let running = list_running_telegram_processes();
+    let mut allowed_pids: HashSet<u32> = HashSet::new();
+    for (pid, _name, path) in running {
+        let path_norm = normalize_path_for_match(&path);
+        if path_norm.starts_with(&root) {
+            allowed_pids.insert(pid);
+        }
+    }
+
     let mut closed_count = 0;
     
     for pid in pids {
+        if !allowed_pids.contains(&pid) {
+            continue;
+        }
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;

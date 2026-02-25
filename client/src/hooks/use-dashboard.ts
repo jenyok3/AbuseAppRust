@@ -162,8 +162,15 @@ export function useDeleteDailyTask() {
       const ok = localStore.deleteDailyTask(id);
       if (!ok) throw new Error("Failed to delete task");
     },
-    onSuccess: (_, id) => {
-      localStore.addLog(`Видалено щоденне завдання #${id}`);
+    onMutate: async (id: number) => {
+      const tasks = queryClient.getQueryData<any[]>(["local", "dailyTasks"]) ?? [];
+      const task = tasks.find((item) => item?.id === id);
+      return { title: typeof task?.title === "string" ? task.title : null };
+    },
+    onSuccess: (_result, _id, context) => {
+      const title = typeof context?.title === "string" ? context.title : null;
+      const label = title ? `Видалено щоденне завдання: ${title}` : "Видалено щоденне завдання";
+      localStore.addLog(label);
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },

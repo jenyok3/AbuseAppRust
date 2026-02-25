@@ -39,3 +39,4 @@ rand = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"
+windows-sys = { version = "0.52", features = ["Win32_System_Console"] }

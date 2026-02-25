@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Plus, Edit2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, addMonths, subMonths, isSameDay, isToday, getDate, getDaysInMonth, startOfMonth } from "date-fns";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -116,7 +116,7 @@ export const GlassCalendarEnhanced = React.forwardRef<HTMLDivElement, GlassCalen
         {/* Footer Actions */}
         <div className="mt-5 flex items-center justify-between space-x-4">
            <button className="flex items-center space-x-2 text-sm font-medium text-white/70 transition-colors hover:text-white">
-             <Edit2 className="h-4 w-4" />
+             <Pencil className="h-4 w-4" />
              <span>Add a note...</span>
            </button>
            <button className="flex items-center space-x-2 rounded-lg bg-black/20 px-3 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-black/30">

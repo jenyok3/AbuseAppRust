@@ -1,6 +1,6 @@
 ﻿import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Rocket, Loader2, ExternalLink, Plus, Edit, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX } from "lucide-react";
+import { Rocket, Loader2, ExternalLink, Plus, Pencil, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TelegramLink } from '../types';
@@ -1606,7 +1606,7 @@ export default function Telegram() {
                                     handleEditProject(name, link);
                                   }}
                                 >
-                                  <Edit className="w-3 h-3" />
+                                  <Pencil className="w-3 h-3" />
                                 </Button>
                                 <Button
                                   variant="ghost"

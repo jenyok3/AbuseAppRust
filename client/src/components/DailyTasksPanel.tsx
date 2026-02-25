@@ -217,22 +217,28 @@ export function DailyTasksPanel() {
     !!editingTaskReminderMinute.trim();
   const isReminderInvalid = reminderInputsFilled && !parsedReminder.isValid;
   const canSaveTaskEdit = !!editingTaskTitle.trim() && parsedReminder.isValid;
+  const isEmptyState = !isLoading && (tasks?.length ?? 0) === 0;
 
-  const openEditTaskModal = (task: { id: number; title: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat }) => {
+  const openEditTaskModal = (task: { id: number; title: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat; remindedAt?: number | null }) => {
     const validRemindAt =
       Number.isFinite(Number(task.remindAt)) && Number(task.remindAt) > 0
         ? Number(task.remindAt)
         : null;
+    const isReminded = Boolean(
+      Number.isFinite(Number(task.remindedAt)) &&
+        validRemindAt &&
+        validRemindAt <= Date.now()
+    );
 
     setEditingTaskId(task.id);
     setEditingTaskTitle(task.title);
-    setEditingTaskOriginalRemindAt(validRemindAt);
-    setEditingTaskReminderDate(formatReminderDateText(validRemindAt ?? Date.now()));
+    setEditingTaskOriginalRemindAt(isReminded ? null : validRemindAt);
+    setEditingTaskReminderDate(isReminded ? "" : formatReminderDateText(validRemindAt ?? Date.now()));
 
-    const timeText = formatReminderTimeText(validRemindAt);
+    const timeText = isReminded ? "" : formatReminderTimeText(validRemindAt);
     setEditingTaskReminderHour(timeText.slice(0, 2));
     setEditingTaskReminderMinute(timeText.slice(2, 4));
-    setEditingTaskRepeatRule(task.repeatRule ?? "never");
+    setEditingTaskRepeatRule(isReminded ? "never" : (task.repeatRule ?? "never"));
 
     const selectedDate = validRemindAt ? new Date(validRemindAt) : new Date();
     setCalendarSelectedDate(selectedDate);
@@ -267,11 +273,16 @@ export function DailyTasksPanel() {
         </div>
 
         <ScrollArea className="flex-1 min-h-0 overflow-y-auto -mx-2 px-2">
-          <div className="space-y-2 pb-4">
+          <div
+            className={cn(
+              "space-y-2 pb-4",
+              isEmptyState && "flex min-h-[220px] flex-col items-center justify-center pb-0"
+            )}
+          >
             {isLoading ? (
               <div className="text-center py-8 text-muted-foreground text-sm">Loading tasks...</div>
             ) : tasks?.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm opacity-50 min-h-[120px] flex items-center justify-center">No daily tasks set.</div>
+              <div className="text-center text-muted-foreground text-sm opacity-50">Немає щоденних завдань</div>
             ) : (
               tasks?.map((task) => {
                 const isReminded = !!(task.remindedAt && task.remindAt && task.remindAt <= Date.now());
@@ -299,29 +310,33 @@ export function DailyTasksPanel() {
                         >
                           {task.title}
                         </span>
-                        {hasReminder ? (
+                        {hasReminder && !isReminded ? (
                           <span className="ml-1 -mt-0.5 shrink-0 leading-none">
                             <Clock strokeWidth={2.4} className="w-3 h-3 text-primary" />
                           </span>
                         ) : null}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="relative flex items-center justify-end w-[72px]">
                         {isReminded ? (
-                          <span className="text-[10px] text-muted-foreground relative top-[1px]">Нагадано</span>
+                          <span className="absolute right-0 text-[10px] text-muted-foreground transition-opacity group-hover:opacity-0">
+                            Нагадано
+                          </span>
                         ) : null}
-                        <button
-                          onClick={() => openEditTaskModal(task)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-white hover:bg-white/10 rounded-md transition-all"
-                          title="Редагувати"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 rounded-md transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEditTaskModal(task)}
+                            className="p-1.5 text-muted-foreground hover:text-white hover:bg-white/10 rounded-md transition-all"
+                            title="Редагувати"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 rounded-md transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -454,7 +469,7 @@ export function DailyTasksPanel() {
                   }}
                 >
                   <div className="space-y-2">
-                    <p className="text-xs tracking-wider text-muted-foreground font-semibold">Назва</p>
+                    <p className="text-sm font-normal text-muted-foreground">Назва</p>
                     <Input
                       value={editingTaskTitle}
                       onChange={(e) => setEditingTaskTitle(e.target.value)}
@@ -465,7 +480,7 @@ export function DailyTasksPanel() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs tracking-wider text-muted-foreground font-semibold">Дата й час нагадування</p>
+                    <p className="text-sm font-normal text-muted-foreground">Дата й час нагадування</p>
                     <div className="flex items-end justify-start gap-3">
                       <button
                         type="button"
@@ -536,7 +551,7 @@ export function DailyTasksPanel() {
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">
-                      <span className="text-xs tracking-wider text-muted-foreground font-semibold">Повторювати:</span>
+                      <span className="text-sm font-normal text-muted-foreground">Повторювати:</span>
                       <Select
                         value={editingTaskRepeatRule}
                         onValueChange={(value) => setEditingTaskRepeatRule(value as DailyReminderRepeat)}
@@ -564,7 +579,7 @@ export function DailyTasksPanel() {
 
                     {editingTaskOriginalRemindAt ? (
                       <div className="pt-1">
-                        <p className="text-[11px] tracking-wider text-muted-foreground/80 text-center">Заплановано</p>
+                        <p className="text-sm font-normal text-muted-foreground text-center">Заплановано</p>
                         <div className="mt-1 flex items-center justify-between">
                           <span className="text-sm text-white/85">{formatReminderDisplayText(editingTaskOriginalRemindAt)}</span>
                           <button

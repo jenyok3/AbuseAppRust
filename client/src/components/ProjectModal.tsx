@@ -101,7 +101,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
 
         <form onSubmit={handleSubmit} className="space-y-6" autoComplete="new-password">
           <div className="space-y-3">
-            <Label htmlFor="name" className="text-muted-foreground text-xs tracking-wider font-bold">
+            <Label htmlFor="name" className="text-sm font-normal text-muted-foreground">
               Назва проєкту
             </Label>
             <Input
@@ -116,7 +116,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
           </div>
 
           <div className="space-y-3">
-            <Label htmlFor="ref_link" className="text-muted-foreground text-xs tracking-wider font-bold">
+            <Label htmlFor="ref_link" className="text-sm font-normal text-muted-foreground">
               Посилання на проєкт
             </Label>
             <Input

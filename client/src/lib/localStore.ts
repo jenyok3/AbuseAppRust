@@ -23,6 +23,13 @@ export type LocalAccount = {
   [key: string]: unknown;
 };
 
+export type LocalAccountMeta = {
+  scope: string;
+  id: number;
+  notes?: string;
+  hashtags?: string[];
+};
+
 export type LocalDailyTask = {
   id: number;
   title: string;
@@ -97,6 +104,7 @@ export type TelegramLaunchState = {
 const STORAGE_KEYS = {
   projects: "abuseapp.projects",
   accounts: "abuseapp.accounts",
+  accountMeta: "abuseapp.accountMeta",
   dailyTasks: "abuseapp.dailyTasks",
   logs: "abuseapp.logs",
   dailyResetDate: "abuseapp.dailyResetDate",
@@ -288,6 +296,67 @@ export const localStore = {
     }));
   },
 
+  getAccountMetaMap(scope: string): Map<number, LocalAccountMeta> {
+    const meta = readJson<LocalAccountMeta[]>(STORAGE_KEYS.accountMeta, []);
+    if (!Array.isArray(meta)) return new Map();
+    const scopeKey = scope ?? "";
+    const map = new Map<number, LocalAccountMeta>();
+    const scoped = meta.filter((item) => (item?.scope ?? "") === scopeKey);
+    const legacy = meta.filter((item) => !(item?.scope ?? "").trim());
+
+    for (const item of scoped) {
+      if (!Number.isFinite(Number(item?.id))) continue;
+      map.set(Number(item.id), { ...item, scope: scopeKey });
+    }
+
+    for (const item of legacy) {
+      if (!Number.isFinite(Number(item?.id))) continue;
+      const id = Number(item.id);
+      if (!map.has(id)) {
+        map.set(id, { ...item, scope: scopeKey });
+      }
+    }
+
+    return map;
+  },
+
+  saveAccountMetaMap(scope: string, map: Map<number, LocalAccountMeta>) {
+    const scopeKey = scope ?? "";
+    const meta = readJson<LocalAccountMeta[]>(STORAGE_KEYS.accountMeta, []);
+    const next = Array.isArray(meta)
+      ? meta.filter((item) => (item?.scope ?? "") !== scopeKey)
+      : [];
+    writeJson(STORAGE_KEYS.accountMeta, [...next, ...Array.from(map.values())]);
+  },
+
+  upsertAccountMeta(scope: string, id: number, patch: Partial<LocalAccountMeta>) {
+    const scopeKey = scope ?? "";
+    const map = this.getAccountMetaMap(scopeKey);
+    const prev = map.get(id) ?? { id, scope: scopeKey };
+    map.set(id, { ...prev, ...patch, id, scope: scopeKey });
+    this.saveAccountMetaMap(scopeKey, map);
+  },
+
+  syncAccountMetaFromAccounts(scope: string, accounts: LocalAccount[]) {
+    const scopeKey = scope ?? "";
+    const map = this.getAccountMetaMap(scopeKey);
+    for (const account of accounts) {
+      map.set(account.id, {
+        id: account.id,
+        scope: scopeKey,
+        notes: account.notes,
+        hashtags: account.hashtags,
+      });
+    }
+    this.saveAccountMetaMap(scopeKey, map);
+    // Drop legacy (no-scope) entries once we have scoped data.
+    const meta = readJson<LocalAccountMeta[]>(STORAGE_KEYS.accountMeta, []);
+    if (Array.isArray(meta)) {
+      const next = meta.filter((item) => (item?.scope ?? "").trim());
+      writeJson(STORAGE_KEYS.accountMeta, next);
+    }
+  },
+
   saveAccounts(accounts: LocalAccount[]) {
     writeJson(STORAGE_KEYS.accounts, accounts);
   },
@@ -305,12 +374,15 @@ export const localStore = {
     return created;
   },
 
-  updateAccountNotes(id: number, notes: string): LocalAccount | null {
+  updateAccountNotes(id: number, notes: string, scope?: string): LocalAccount | null {
     const accounts = this.getAccounts();
     const index = accounts.findIndex((a) => a.id === id);
     if (index === -1) return null;
     accounts[index] = { ...accounts[index], notes };
     this.saveAccounts(accounts);
+    if (typeof scope === "string" && scope.length > 0) {
+      this.upsertAccountMeta(scope, id, { notes });
+    }
     return accounts[index];
   },
 

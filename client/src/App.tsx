@@ -15,7 +15,6 @@ import NotFound from "@/pages/not-found";
 import { GlobalWindowControls } from "@/components/GlobalWindowControls";
 import { GlobalKeyboardControls } from "@/components/GlobalKeyboardControls";
 import { DailyReminderScheduler } from "@/components/DailyReminderScheduler";
-import { AppTray } from "@/components/AppTray";
 import { AuthOnboardingModal } from "@/components/AuthOnboardingModal";
 import { ThemeEffects } from "@/components/ThemeEffects";
 import { useEffect, useState } from "react";
@@ -93,7 +92,6 @@ function App() {
           </div>
           <GlobalKeyboardControls />
           <DailyReminderScheduler />
-          <AppTray />
         </SidebarProvider>
         <AuthOnboardingModal
           open={showAuthOnboarding}

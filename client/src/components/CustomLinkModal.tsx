@@ -96,7 +96,7 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
         <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
           {/* URL Input */}
           <div className="space-y-3">
-            <Label htmlFor="url" className="text-muted-foreground text-xs tracking-wider font-bold">
+            <Label htmlFor="url" className="text-sm font-normal text-muted-foreground">
               Посилання на проєкт
             </Label>
             <Input
