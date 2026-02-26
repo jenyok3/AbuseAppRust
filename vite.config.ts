@@ -14,7 +14,7 @@ export default defineConfig({
   },
   root: "./client",
   build: {
-    outDir: "./dist/public",
+    outDir: "../dist/public",
     emptyOutDir: true,
     assetsDir: "assets",
     rollupOptions: {

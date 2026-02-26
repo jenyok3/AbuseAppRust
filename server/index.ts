@@ -60,7 +60,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  const enableApi =
+    process.env.ENABLE_API === "true" || process.env.ENABLE_API === "1";
+
+  if (enableApi) {
+    await registerRoutes(httpServer, app);
+    log("API enabled (ENABLE_API=1).", "config");
+  } else {
+    log("API disabled (local-only mode). Set ENABLE_API=1 to enable.", "config");
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

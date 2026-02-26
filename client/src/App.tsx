@@ -7,7 +7,6 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Sidebar } from "@/components/Sidebar";
 import Telegram from "@/pages/Telegram";
 import TestSimple from "./test-simple";
-import Accounts from "@/pages/Accounts";
 import Settings from "@/pages/Settings";
 import Chrome from "@/pages/Chrome";
 import Calendar from "@/pages/Calendar";
@@ -25,7 +24,6 @@ function Router() {
     <Switch>
       <Route path="/" component={Telegram} />
       <Route path="/test" component={TestSimple} />
-      <Route path="/accounts" component={Accounts} />
       <Route path="/projects" component={Telegram} />
       <Route path="/chrome" component={Chrome} />
       <Route path="/calendar" component={Calendar} />
@@ -54,7 +52,6 @@ function App() {
       id: String(Date.now()),
       name: "Telegram User",
       username: normalized,
-      provider: "telegram",
     };
     localStore.saveAuthUser(user);
     localStore.setAuthOnboardingSeen(true);

@@ -1,9 +1,9 @@
 {
   "productName": "AbuseApp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "com.abuseapp.desktop",
   "build": {
-    "frontendDist": "../client/dist/public",
+    "frontendDist": "../dist/public",
     "devUrl": "http://localhost:4000",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"

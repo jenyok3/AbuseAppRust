@@ -1,5 +1,5 @@
 ﻿import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat } from "@/lib/localStore";
+import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
 import { type AccountStatus } from "@/lib/accountStatus";
 
 // ============================================
@@ -139,7 +139,7 @@ export function useToggleDailyTask() {
       queryClient.setQueryData(["local", "dailyTasks"], (old: any[] | undefined) => {
         return old?.map(task =>
           task.id === id
-            ? (isCompleted ? { ...task, isCompleted, remindAt: null, remindedAt: null } : { ...task, isCompleted })
+            ? { ...task, isCompleted }
             : task
         );
       });
@@ -185,13 +185,15 @@ export function useUpdateDailyTask() {
       title,
       remindAt,
       repeatRule,
+      reminders,
     }: {
       id: number;
       title: string;
       remindAt?: number | null;
       repeatRule?: DailyReminderRepeat;
+      reminders?: LocalDailyReminder[];
     }) => {
-      const updated = localStore.updateDailyTask(id, { title, remindAt, repeatRule });
+      const updated = localStore.updateDailyTask(id, { title, remindAt, repeatRule, reminders });
       if (!updated) throw new Error("Failed to update task");
       return updated;
     },
@@ -222,8 +224,8 @@ export function useUpdateDailyTaskReminder() {
 export function useMarkDailyTaskReminded() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, remindedAt }: { id: number; remindedAt: number }) => {
-      const updated = localStore.markDailyTaskReminded(id, remindedAt);
+    mutationFn: async ({ id, reminderId, remindedAt }: { id: number; reminderId: string; remindedAt: number }) => {
+      const updated = localStore.markDailyTaskReminded(id, reminderId, remindedAt);
       if (!updated) throw new Error("Failed to mark task reminded");
       return updated;
     },

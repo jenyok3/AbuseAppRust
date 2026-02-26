@@ -15,10 +15,10 @@ export type LocalProject = {
 export type LocalAccount = {
   id: number;
   name: string;
+  displayName?: string;
   status: AccountStatus;
   notes?: string;
   hashtags?: string[];
-  projectId?: number | null;
   lastActive?: number | string;
   [key: string]: unknown;
 };
@@ -26,6 +26,7 @@ export type LocalAccount = {
 export type LocalAccountMeta = {
   scope: string;
   id: number;
+  displayName?: string;
   notes?: string;
   hashtags?: string[];
 };
@@ -34,7 +35,15 @@ export type LocalDailyTask = {
   id: number;
   title: string;
   isCompleted: boolean;
+  reminders?: LocalDailyReminder[];
   remindAt?: number | null;
+  remindedAt?: number | null;
+  repeatRule?: DailyReminderRepeat;
+};
+
+export type LocalDailyReminder = {
+  id: string;
+  remindAt: number;
   remindedAt?: number | null;
   repeatRule?: DailyReminderRepeat;
 };
@@ -73,8 +82,6 @@ export type LocalUser = {
   id: string;
   name: string;
   username?: string;
-  avatarUrl?: string;
-  provider: "telegram";
 };
 
 export type TelegramLaunchParams = {
@@ -125,29 +132,6 @@ const DEFAULT_SETTINGS: LocalSettings = {
   themeSnowSpeed: 1,
 };
 const LOG_RETENTION_MS = 24 * 60 * 60 * 1000;
-
-const RECENT_LOG_ALLOWLIST: RegExp[] = [
-  /додано проєкт/i,
-  /оновлено проєкт/i,
-  /видалено проєкт/i,
-  /додано кастомний проєкт/i,
-  /запущено .+/i,
-  /завершено .+/i,
-  /додано хештег/i,
-  /видалено хештег .* з усіх акаунтів/i,
-  /оновлено хештег/i,
-  /додано щоденне завдання/i,
-  /видалено щоденне завдання/i,
-  /заплановано нагадування/i,
-  /скасовано нагадування/i,
-  /нагадування:/i,
-];
-
-function shouldKeepRecentLogMessage(message: unknown): boolean {
-  const text = String(message ?? "").trim();
-  if (!text) return false;
-  return RECENT_LOG_ALLOWLIST.some((pattern) => pattern.test(text));
-}
 
 function getLocalDateKey(date = new Date()): string {
   const year = date.getFullYear();
@@ -216,6 +200,10 @@ function normalizeProject(input: Partial<LocalProject> & { name: string }): Loca
   };
 }
 
+function createReminderId(): string {
+  return `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function migrateLegacyProjects(): LocalProject[] {
   const legacy = readJson<[string, any][]>(STORAGE_KEYS.legacyProjects, []);
   if (!Array.isArray(legacy) || legacy.length === 0) return [];
@@ -234,6 +222,39 @@ function migrateLegacyProjects(): LocalProject[] {
       mixed: safe.mixed || "",
     });
   });
+}
+
+function normalizeDailyReminders(task: Partial<LocalDailyTask>): LocalDailyReminder[] {
+  if (Array.isArray(task.reminders) && task.reminders.length > 0) {
+    return task.reminders
+      .map((reminder, index): LocalDailyReminder | null => {
+        const remindAt = Number.isFinite(Number(reminder?.remindAt)) ? Number(reminder?.remindAt) : NaN;
+        if (!Number.isFinite(remindAt) || remindAt <= 0) return null;
+        return {
+          id: typeof reminder?.id === "string" && reminder.id.trim()
+            ? reminder.id
+            : `r-${remindAt}-${index}`,
+          remindAt,
+          remindedAt: Number.isFinite(Number(reminder?.remindedAt)) ? Number(reminder?.remindedAt) : null,
+          repeatRule: reminder?.repeatRule,
+        };
+      })
+      .filter((reminder): reminder is LocalDailyReminder => reminder !== null);
+  }
+
+  const legacyRemindAt = Number.isFinite(Number(task.remindAt)) ? Number(task.remindAt) : null;
+  if (legacyRemindAt && legacyRemindAt > 0) {
+    return [
+      {
+        id: `legacy-${task.id ?? "task"}-${legacyRemindAt}`,
+        remindAt: legacyRemindAt,
+        remindedAt: Number.isFinite(Number(task.remindedAt)) ? Number(task.remindedAt) : null,
+        repeatRule: task.repeatRule,
+      },
+    ];
+  }
+
+  return [];
 }
 
 export const localStore = {
@@ -344,6 +365,7 @@ export const localStore = {
       map.set(account.id, {
         id: account.id,
         scope: scopeKey,
+        displayName: account.displayName,
         notes: account.notes,
         hashtags: account.hashtags,
       });
@@ -386,6 +408,18 @@ export const localStore = {
     return accounts[index];
   },
 
+  updateAccountDisplayName(id: number, displayName: string, scope?: string): LocalAccount | null {
+    const accounts = this.getAccounts();
+    const index = accounts.findIndex((a) => a.id === id);
+    if (index === -1) return null;
+    accounts[index] = { ...accounts[index], displayName };
+    this.saveAccounts(accounts);
+    if (typeof scope === "string" && scope.length > 0) {
+      this.upsertAccountMeta(scope, id, { displayName });
+    }
+    return accounts[index];
+  },
+
   updateAccountStatus(id: number, status: AccountStatus): LocalAccount | null {
     const accounts = this.getAccounts();
     const index = accounts.findIndex((a) => a.id === id);
@@ -403,6 +437,10 @@ export const localStore = {
     return tasks.map((task) => ({
       ...task,
       isCompleted: Boolean(task?.isCompleted),
+      reminders: normalizeDailyReminders(task).map((reminder) => ({
+        ...reminder,
+        repeatRule: this.normalizeRepeatRule(reminder.repeatRule),
+      })),
       remindAt: Number.isFinite(Number(task?.remindAt)) ? Number(task?.remindAt) : null,
       remindedAt: Number.isFinite(Number(task?.remindedAt)) ? Number(task?.remindedAt) : null,
       repeatRule: this.normalizeRepeatRule(task?.repeatRule),
@@ -416,10 +454,19 @@ export const localStore = {
   addDailyTask(title: string, remindAt?: number | null): LocalDailyTask {
     ensureDailyReset();
     const tasks = this.getDailyTasks();
+    const reminders: LocalDailyReminder[] = Number.isFinite(Number(remindAt)) && Number(remindAt) > 0
+      ? [{
+        id: createReminderId(),
+        remindAt: Number(remindAt),
+        remindedAt: null,
+        repeatRule: "never",
+      }]
+      : [];
     const created: LocalDailyTask = {
       id: nextId(tasks),
       title,
       isCompleted: false,
+      reminders,
       remindAt: Number.isFinite(Number(remindAt)) ? Number(remindAt) : null,
       remindedAt: null,
       repeatRule: "never",
@@ -434,16 +481,14 @@ export const localStore = {
     const tasks = this.getDailyTasks();
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
-    tasks[index] = isCompleted
-      ? { ...tasks[index], isCompleted, remindAt: null, remindedAt: null, repeatRule: "never" }
-      : { ...tasks[index], isCompleted };
+    tasks[index] = { ...tasks[index], isCompleted };
     this.saveDailyTasks(tasks);
     return tasks[index];
   },
 
   updateDailyTask(
     id: number,
-    patch: { title?: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat }
+    patch: { title?: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat; reminders?: LocalDailyReminder[] }
   ): LocalDailyTask | null {
     ensureDailyReset();
     const tasks = this.getDailyTasks();
@@ -460,10 +505,21 @@ export const localStore = {
     const nextRepeatRule = hasRepeatPatch
       ? this.normalizeRepeatRule(patch.repeatRule)
       : this.normalizeRepeatRule(prev.repeatRule);
+    const nextReminders = Array.isArray(patch.reminders)
+      ? patch.reminders
+          .filter((reminder) => Number.isFinite(Number(reminder?.remindAt)) && Number(reminder.remindAt) > 0)
+          .map((reminder) => ({
+            id: typeof reminder?.id === "string" && reminder.id.trim() ? reminder.id : createReminderId(),
+            remindAt: Number(reminder.remindAt),
+            remindedAt: Number.isFinite(Number(reminder?.remindedAt)) ? Number(reminder.remindedAt) : null,
+            repeatRule: this.normalizeRepeatRule(reminder.repeatRule),
+          }))
+      : normalizeDailyReminders(prev);
 
     tasks[index] = {
       ...prev,
       title: nextTitle,
+      reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: hasReminderPatch && nextRemindAt ? null : prev.remindedAt ?? null,
       repeatRule: nextRemindAt ? nextRepeatRule : "never",
@@ -479,8 +535,17 @@ export const localStore = {
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     const nextRemindAt = Number.isFinite(Number(remindAt)) ? Number(remindAt) : null;
+    const nextReminders: LocalDailyReminder[] = nextRemindAt
+      ? [{
+        id: createReminderId(),
+        remindAt: nextRemindAt,
+        remindedAt: null,
+        repeatRule: this.normalizeRepeatRule(tasks[index].repeatRule),
+      }]
+      : [];
     tasks[index] = {
       ...tasks[index],
+      reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: nextRemindAt ? null : tasks[index].remindedAt,
       repeatRule: nextRemindAt ? this.normalizeRepeatRule(tasks[index].repeatRule) : "never",
@@ -489,14 +554,85 @@ export const localStore = {
     return tasks[index];
   },
 
-  markDailyTaskReminded(id: number, remindedAt: number): LocalDailyTask | null {
+  addDailyTaskReminder(id: number, remindAt: number, repeatRule?: DailyReminderRepeat): LocalDailyTask | null {
+    ensureDailyReset();
+    const tasks = this.getDailyTasks();
+    const index = tasks.findIndex((t) => t.id === id);
+    if (index === -1) return null;
+    const nextReminder: LocalDailyReminder = {
+      id: createReminderId(),
+      remindAt,
+      remindedAt: null,
+      repeatRule: this.normalizeRepeatRule(repeatRule),
+    };
+    const prevReminders = normalizeDailyReminders(tasks[index]);
+    tasks[index] = {
+      ...tasks[index],
+      reminders: [...prevReminders, nextReminder],
+    };
+    this.saveDailyTasks(tasks);
+    return tasks[index];
+  },
+
+  removeDailyTaskReminder(id: number, reminderId: string): LocalDailyTask | null {
+    ensureDailyReset();
+    const tasks = this.getDailyTasks();
+    const index = tasks.findIndex((t) => t.id === id);
+    if (index === -1) return null;
+    const nextReminders = normalizeDailyReminders(tasks[index]).filter((reminder) => reminder.id !== reminderId);
+    tasks[index] = {
+      ...tasks[index],
+      reminders: nextReminders,
+    };
+    this.saveDailyTasks(tasks);
+    return tasks[index];
+  },
+
+  updateDailyTaskReminderEntry(
+    id: number,
+    reminderId: string,
+    patch: { remindAt?: number | null; remindedAt?: number | null; repeatRule?: DailyReminderRepeat }
+  ): LocalDailyTask | null {
+    ensureDailyReset();
+    const tasks = this.getDailyTasks();
+    const index = tasks.findIndex((t) => t.id === id);
+    if (index === -1) return null;
+    const reminders = normalizeDailyReminders(tasks[index]).map((reminder) => {
+      if (reminder.id !== reminderId) return reminder;
+      const nextRemindAt = Object.prototype.hasOwnProperty.call(patch, "remindAt")
+        ? (Number.isFinite(Number(patch.remindAt)) ? Number(patch.remindAt) : reminder.remindAt)
+        : reminder.remindAt;
+      return {
+        ...reminder,
+        remindAt: nextRemindAt,
+        remindedAt: Object.prototype.hasOwnProperty.call(patch, "remindedAt")
+          ? (Number.isFinite(Number(patch.remindedAt)) ? Number(patch.remindedAt) : null)
+          : reminder.remindedAt ?? null,
+        repeatRule: Object.prototype.hasOwnProperty.call(patch, "repeatRule")
+          ? this.normalizeRepeatRule(patch.repeatRule)
+          : this.normalizeRepeatRule(reminder.repeatRule),
+      };
+    });
+    tasks[index] = {
+      ...tasks[index],
+      reminders,
+    };
+    this.saveDailyTasks(tasks);
+    return tasks[index];
+  },
+
+  markDailyTaskReminded(id: number, reminderId: string, remindedAt: number): LocalDailyTask | null {
     ensureDailyReset();
     const tasks = this.getDailyTasks();
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     tasks[index] = {
       ...tasks[index],
-      remindedAt,
+      reminders: normalizeDailyReminders(tasks[index]).map((reminder) =>
+        reminder.id === reminderId
+          ? { ...reminder, remindedAt }
+          : reminder
+      ),
     };
     this.saveDailyTasks(tasks);
     return tasks[index];
@@ -521,8 +657,7 @@ export const localStore = {
       .filter(
         (log) =>
           Number.isFinite(log?.timestamp) &&
-          Number(log.timestamp) >= cutoff &&
-          shouldKeepRecentLogMessage(log?.message)
+          Number(log.timestamp) >= cutoff
       )
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, 200);
@@ -560,9 +695,6 @@ export const localStore = {
       message,
       timestamp: Date.now(),
     };
-    if (!shouldKeepRecentLogMessage(message)) {
-      return created;
-    }
     const cutoff = Date.now() - LOG_RETENTION_MS;
     const next = [created, ...logs]
       .filter((log) => Number(log.timestamp) >= cutoff)

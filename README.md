@@ -11,6 +11,7 @@ AbuseApp is a desktop dashboard for managing Telegram/Chrome account farms. The 
 The UI reads/writes data from localStorage:
 - Projects, accounts, daily tasks, logs
 - Settings (also synced to Tauri backend)
+- `client/src/lib/tauri-api.ts` data methods (`getAccounts`, `getRecentActions`, `getDailyTasks`) use the same localStorage source to avoid data divergence.
 
 ## Development
 Install dependencies:
@@ -51,6 +52,7 @@ npm run tauri:build
 ```
 
 ## Environment Flags
+- `ENABLE_API=1` enables `/api/*` routes on the server. By default API is disabled and the app runs in local-only mode.
 - `SEED_DATABASE=1` enables API seed data on server start.
 
 ## Notes

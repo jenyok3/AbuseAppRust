@@ -33,20 +33,26 @@ export default function Settings() {
   const snowMin = 0.5;
   const snowMax = 2;
   const snowStep = 0.1;
+  const normalizeWindowsPath = (value: string) => {
+    if (!value) return "";
+    const hasUncPrefix = value.startsWith("\\\\");
+    const normalized = value.replace(/\\{2,}/g, "\\");
+    return hasUncPrefix ? `\\${normalized}` : normalized;
+  };
 
   useEffect(() => {
     const settings = localStore.getSettings();
     setTelegramThreads(settings.telegramThreads || "");
-    setTelegramFolderPath(settings.telegramFolderPath || "");
+    setTelegramFolderPath(normalizeWindowsPath(settings.telegramFolderPath || ""));
     setChromeThreads(settings.chromeThreads || "");
-    setChromeFolderPath(settings.chromeFolderPath || "");
+    setChromeFolderPath(normalizeWindowsPath(settings.chromeFolderPath || ""));
     setThemeEffect(settings.themeEffect || "none");
     setThemeSnowSpeed(typeof settings.themeSnowSpeed === "number" ? settings.themeSnowSpeed : 1);
     setInitialSettings({
       telegramThreads: settings.telegramThreads || "",
-      telegramFolderPath: settings.telegramFolderPath || "",
+      telegramFolderPath: normalizeWindowsPath(settings.telegramFolderPath || ""),
       chromeThreads: settings.chromeThreads || "",
-      chromeFolderPath: settings.chromeFolderPath || "",
+      chromeFolderPath: normalizeWindowsPath(settings.chromeFolderPath || ""),
       themeEffect: settings.themeEffect || "none",
       themeSnowSpeed: typeof settings.themeSnowSpeed === "number" ? settings.themeSnowSpeed : 1,
     });
@@ -66,17 +72,19 @@ export default function Settings() {
 
   const handleSave = async (section: "telegram" | "chrome") => {
     const persisted = localStore.getSettings();
+    const normalizedTelegramFolderPath = normalizeWindowsPath(telegramFolderPath);
+    const normalizedChromeFolderPath = normalizeWindowsPath(chromeFolderPath);
     const settings =
       section === "telegram"
         ? {
             ...persisted,
             telegramThreads,
-            telegramFolderPath,
+            telegramFolderPath: normalizedTelegramFolderPath,
           }
         : {
             ...persisted,
             chromeThreads,
-            chromeFolderPath,
+            chromeFolderPath: normalizedChromeFolderPath,
           };
     localStore.saveSettings(settings);
 
@@ -192,10 +200,11 @@ export default function Settings() {
     try {
       const selectedPath = await openDirectoryDialog() as string;
       if (selectedPath) {
-        setTelegramFolderPath(selectedPath);
+        const normalizedPath = normalizeWindowsPath(selectedPath);
+        setTelegramFolderPath(normalizedPath);
         toast({
           title: "Папку вибрано",
-          description: `Обрано папку: ${selectedPath}`,
+          description: `Обрано папку: ${normalizedPath}`,
         });
       }
     } catch (error) {
@@ -211,10 +220,11 @@ export default function Settings() {
     try {
       const selectedPath = await openDirectoryDialog() as string;
       if (selectedPath) {
-        setChromeFolderPath(selectedPath);
+        const normalizedPath = normalizeWindowsPath(selectedPath);
+        setChromeFolderPath(normalizedPath);
         toast({
           title: "Папку вибрано",
-          description: `Обрано папку: ${selectedPath}`,
+          description: `Обрано папку: ${normalizedPath}`,
         });
       }
     } catch (error) {
@@ -371,8 +381,7 @@ export default function Settings() {
                     <Input
                       id="telegramThreads"
                       type="number"
-                      name="settings_telegram_threads"
-                      autoComplete="new-password"
+                      autoComplete="off"
                       value={telegramThreads}
                       onChange={(e) => {
                         setTelegramThreads(e.target.value);
@@ -392,14 +401,13 @@ export default function Settings() {
                     <div className="flex gap-2">
                       <Input
                         id="telegramFolderPath"
-                        name="settings_telegram_folder"
-                        autoComplete="new-password"
+                        autoComplete="off"
                         value={telegramFolderPath}
                         onChange={(e) => {
-                          setTelegramFolderPath(e.target.value);
+                          setTelegramFolderPath(normalizeWindowsPath(e.target.value));
                         }}
                         className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none flex-1"
-                        placeholder="C:\\Users\\Admin\\Documents\\TelegramAccounts"
+                        placeholder={String.raw`C:\Users\Admin\Documents\TelegramAccounts`}
                       />
                       <Button
                         type="button"
@@ -443,8 +451,7 @@ export default function Settings() {
                     <Input
                       id="chromeThreads"
                       type="number"
-                      name="settings_chrome_threads"
-                      autoComplete="new-password"
+                      autoComplete="off"
                       value={chromeThreads}
                       onChange={(e) => {
                         setChromeThreads(e.target.value);
@@ -464,14 +471,13 @@ export default function Settings() {
                     <div className="flex gap-2">
                       <Input
                         id="chromeFolderPath"
-                        name="settings_chrome_folder"
-                        autoComplete="new-password"
+                        autoComplete="off"
                         value={chromeFolderPath}
                         onChange={(e) => {
-                          setChromeFolderPath(e.target.value);
+                          setChromeFolderPath(normalizeWindowsPath(e.target.value));
                         }}
                         className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none flex-1"
-                        placeholder="C:\\Users\\Admin\\Documents\\ChromeAccounts"
+                        placeholder={String.raw`C:\Users\Admin\Documents\ChromeAccounts`}
                       />
                       <Button
                         type="button"

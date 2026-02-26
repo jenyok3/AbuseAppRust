@@ -9,6 +9,7 @@ vi.mock("@/hooks/use-dashboard", () => ({
   useCreateDailyTask: () => ({ mutate: vi.fn(), isPending: false }),
   useToggleDailyTask: () => ({ mutate: vi.fn() }),
   useDeleteDailyTask: () => ({ mutate: vi.fn() }),
+  useUpdateDailyTask: () => ({ mutate: vi.fn() }),
 }));
 
 describe("UI smoke tests", () => {
@@ -20,6 +21,6 @@ describe("UI smoke tests", () => {
 
   it("renders daily tasks panel with empty state", () => {
     render(<DailyTasksPanel />);
-    expect(screen.getByText("No daily tasks set.")).toBeInTheDocument();
+    expect(screen.getByText("Немає щоденних завдань")).toBeInTheDocument();
   });
 });

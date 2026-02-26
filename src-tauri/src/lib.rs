@@ -185,9 +185,10 @@ pub fn run() {
         let open_item = MenuItem::with_id(app, "open", "Відкрити", true, Option::<&str>::None)?;
         let quit_item = MenuItem::with_id(app, "quit", "Вийти", true, Option::<&str>::None)?;
         let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+        let tray_image = tauri::include_image!("icons/tray-icon.png");
 
         let tray_icon = TrayIconBuilder::new()
-            .icon(app.default_window_icon().unwrap().clone())
+            .icon(tray_image)
             .menu(&tray_menu)
             .show_menu_on_left_click(false)
             .tooltip("AbuseApp")
@@ -263,6 +264,7 @@ pub fn run() {
       read_directory,
       open_directory_dialog,
       close_telegram_processes,
+      close_telegram_accounts_batch,
       close_single_account,
       get_running_telegram_processes,
       send_reminder_notification
@@ -309,7 +311,7 @@ async fn get_accounts() -> Result<Vec<serde_json::Value>, String> {
 #[tauri::command]
 async fn launch_accounts(account_ids: Vec<String>) -> Result<String, String> {
     // Mock implementation
-    Ok(format!("Р—Р°РїСѓС‰РµРЅРѕ {} Р°РєР°СѓРЅС‚С–РІ", account_ids.len()))
+    Ok(format!("Launched {} accounts", account_ids.len()))
 }
 
 #[tauri::command]
@@ -318,7 +320,7 @@ async fn launch_single_account(
     telegram_folder_path: String,
 ) -> Result<u32, String> {
     use std::process::Command;
-    println!("[LOG] Р—Р°РїСѓСЃРє Р°РєР°СѓРЅС‚Р° TG {}", account_id);
+    println!("[LOG] Launching TG {}", account_id);
     
     let telegram_exe_path = Path::new(&telegram_folder_path)
         .join(format!("TG {}", account_id))
@@ -329,16 +331,16 @@ async fn launch_single_account(
             .spawn()
         {
             Ok(child) => {
-                println!("[LOG] TG {} Р·Р°РїСѓС‰РµРЅРѕ Р±РµР· РїР°СЂР°РјРµС‚СЂС–РІ", account_id);
+                println!("[LOG] TG {} launched without params", account_id);
                 Ok(child.id())
             }
             Err(e) => {
-                println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ Р°РєР°СѓРЅС‚Р° {}: {}", account_id, e);
-                Err(format!("РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РїСѓСЃС‚РёС‚Рё Р°РєР°СѓРЅС‚ {}: {}", account_id, e))
+                println!("[LOG] Failed to launch TG {}: {}", account_id, e);
+                Err(format!("Failed to launch account {}: {}", account_id, e))
             }
         }
     } else {
-        Err(format!("Р¤Р°Р№Р» Telegram.exe РЅРµ Р·РЅР°Р№РґРµРЅРѕ: {}", telegram_exe_path.display()))
+        Err(format!("Telegram.exe not found: {}", telegram_exe_path.display()))
     }
 }
 
@@ -351,45 +353,49 @@ async fn launch_accounts_batch(
 ) -> Result<Vec<u32>, String> {
     use std::process::Command;
     use rand::seq::SliceRandom;
-    
-    // Р›РѕРіСѓРІР°РЅРЅСЏ РїРѕС‡Р°С‚РєСѓ РѕРїРµСЂР°С†С–С—
-    println!("[LOG] РџРѕС‡Р°С‚РѕРє РїР°РєРµС‚РЅРѕРіРѕ Р·Р°РїСѓСЃРєСѓ Р°РєР°СѓРЅС‚С–РІ");
-    println!("[LOG] Р”С–Р°РїР°Р·РѕРЅ: {}-{}", start_range, end_range);
-    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
-        link_params.api_id, link_params.app_name, link_params.app_type, link_params.ref_link, link_params.mixed);
-    
-    // Build the link
+
+    println!("[LOG] Start batch launch for TG accounts");
+    println!("[LOG] Range: {}-{}", start_range, end_range);
+    println!(
+        "[LOG] Link params: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
+        link_params.api_id, link_params.app_name, link_params.app_type, link_params.ref_link, link_params.mixed
+    );
+
     let link = build_telegram_link(link_params.clone()).await?;
-    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ (Р·РіРµРЅРµСЂРѕРІР°РЅРѕ): {}", link);
-    
-    // Create account range
+    println!("[LOG] Generated link: {}", link);
+
     let mut profiles: Vec<i32> = (start_range..=end_range).collect();
-    
-    // Shuffle if mixed
+
     if link_params.mixed == "yes" {
         let mut rng = rand::thread_rng();
         profiles.shuffle(&mut rng);
-        println!("[LOG] РџСЂРѕС„С–Р»С– РїРµСЂРµРјС–С€Р°РЅС–.");
+        println!("[LOG] Profiles shuffled");
     } else {
-        println!("[LOG] РџСЂРѕС„С–Р»С– РЅРµ РїРµСЂРµРјС–С€Р°РЅС–");
+        println!("[LOG] Profiles not shuffled");
     }
-    
+
     let mut launched_pids = Vec::new();
-    let batch_size = 29;
+    let settings = load_settings_from_disk();
+    let batch_size = settings
+        .telegram_threads
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|size| *size > 0)
+        .unwrap_or(1);
     
     for (i, &profile_num) in profiles.iter().enumerate() {
         if i > 0 && i % batch_size == 0 {
-            println!("[LOG] Р”РѕСЃСЏРіРЅСѓС‚Рѕ Р»С–РјС–С‚ РїР°РєРµС‚Р°, РїРѕРІРµСЂС‚Р°С”РјРѕ РїРѕС‚РѕС‡РЅРёР№ СЃРїРёСЃРѕРє PID");
+            println!("[LOG] Batch limit reached, returning current PID list");
             return Ok(launched_pids);
         }
-        println!("[LOG] TG {} Р·Р°РїСѓСЃРєР°С”С‚СЊСЃСЏ", profile_num);
+        println!("[LOG] Launching TG {}", profile_num);
         
         let telegram_exe_path = Path::new(&telegram_folder_path)
             .join(format!("TG {}", profile_num))
             .join("Telegram.exe");
         
         if telegram_exe_path.exists() {
-            // First launch without parameters
             match Command::new(&telegram_exe_path)
                 .args(if !link_params.app_type.is_empty() { 
                     vec!["-startintray"] 
@@ -400,15 +406,14 @@ async fn launch_accounts_batch(
             {
                 Ok(_child) => {
                     launched_pids.push(_child.id());
-                    println!("[LOG] TG {} Р·Р°РїСѓС‰РµРЅРѕ Р±РµР· РїР°СЂР°РјРµС‚СЂС–РІ", profile_num);
+                    println!("[LOG] TG {} launched without params", profile_num);
                     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ {}: {}", telegram_exe_path.display(), e);
+                    println!("[LOG] Launch error {}: {}", telegram_exe_path.display(), e);
                 }
             }
             
-            // Then launch with link as a separate argument (not with --)
             let args = if !link_params.app_type.is_empty() {
                 vec![link.as_str(), "-startintray"]
             } else {
@@ -420,16 +425,15 @@ async fn launch_accounts_batch(
                 .spawn()
             {
                 Ok(_child) => {
-                    // Don't add to launched_pids since this is the same profile
-                    println!("TG {} Р·Р°РїСѓС‰РµРЅРѕ Р· РїР°СЂР°РјРµС‚СЂР°РјРё {}.", profile_num, link);
+                    println!("TG {} launched with params {}.", profile_num, link);
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] РџРѕРјРёР»РєР° Р·Р°РїСѓСЃРєСѓ Р· РїР°СЂР°РјРµС‚СЂР°РјРё РґР»СЏ TG {}: {}", profile_num, e);
+                    println!("[LOG] Launch with params failed for TG {}: {}", profile_num, e);
                 }
             }
         } else {
-            println!("Р¤Р°Р№Р» РЅРµ Р·РЅР°Р№РґРµРЅРѕ: {}", telegram_exe_path.display());
+            println!("File not found: {}", telegram_exe_path.display());
         }
     }
     
@@ -452,20 +456,20 @@ async fn launch_accounts_for_profiles(
 ) -> Result<Vec<u32>, String> {
     use std::process::Command;
 
-    println!("[LOG] Р СџР С•РЎвЂЎР В°РЎвЂљР С•Р С” Р С—Р В°Р С”Р ВµРЎвЂљР Р…Р С•Р С–Р С• Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ Р В°Р С”Р В°РЎС“Р Р…РЎвЂљРЎвЂ“Р Р† (custom list)");
-    println!("[LOG] Р СџРЎР‚Р С•РЎвЂћРЎвЂ“Р В»РЎвЂ“: {:?}", profile_ids);
+    println!("[LOG] Start batch launch for custom profile list");
+    println!("[LOG] Profiles: {:?}", profile_ids);
     println!(
-        "[LOG] Р СџР В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р С‘ Р С—Р С•РЎРѓР С‘Р В»Р В°Р Р…Р Р…РЎРЏ: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
+        "[LOG] Link params: api_id={}, app_name={}, app_type={}, ref_link={}, mixed={}",
         link_params.api_id, link_params.app_name, link_params.app_type, link_params.ref_link, link_params.mixed
     );
 
     let link = build_telegram_link(link_params.clone()).await?;
-    println!("[LOG] Р СџР В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р С‘ Р С—Р С•РЎРѓР С‘Р В»Р В°Р Р…Р Р…РЎРЏ (Р В·Р С–Р ВµР Р…Р ВµРЎР‚Р С•Р Р†Р В°Р Р…Р С•): {}", link);
+    println!("[LOG] Generated link: {}", link);
 
     let mut launched_pids = Vec::new();
 
     for (index, &profile_num) in profile_ids.iter().enumerate() {
-        println!("[LOG] TG {} Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°РЎвЂќРЎвЂљРЎРЉРЎРѓРЎРЏ", profile_num);
+        println!("[LOG] Launching TG {}", profile_num);
 
         let telegram_exe_path = Path::new(&telegram_folder_path)
             .join(format!("TG {}", profile_num))
@@ -482,11 +486,11 @@ async fn launch_accounts_for_profiles(
             {
                 Ok(_child) => {
                     launched_pids.push(_child.id());
-                    println!("[LOG] TG {} Р В·Р В°Р С—РЎС“РЎвЂ°Р ВµР Р…Р С• Р В±Р ВµР В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚РЎвЂ“Р Р†", profile_num);
+                    println!("[LOG] TG {} launched without params", profile_num);
                     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] Р СџР С•Р СР С‘Р В»Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ {}: {}", telegram_exe_path.display(), e);
+                    println!("[LOG] Launch error {}: {}", telegram_exe_path.display(), e);
                 }
             }
 
@@ -501,15 +505,15 @@ async fn launch_accounts_for_profiles(
                 .spawn()
             {
                 Ok(_child) => {
-                    println!("TG {} Р В·Р В°Р С—РЎС“РЎвЂ°Р ВµР Р…Р С• Р В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р В°Р СР С‘ {}.", profile_num, link);
+                    println!("TG {} launched with params {}.", profile_num, link);
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 }
                 Err(e) => {
-                    println!("[LOG] Р СџР С•Р СР С‘Р В»Р С”Р В° Р В·Р В°Р С—РЎС“РЎРѓР С”РЎС“ Р В· Р С—Р В°РЎР‚Р В°Р СР ВµРЎвЂљРЎР‚Р В°Р СР С‘ Р Т‘Р В»РЎРЏ TG {}: {}", profile_num, e);
+                    println!("[LOG] Launch with params failed for TG {}: {}", profile_num, e);
                 }
             }
         } else {
-            println!("Р В¤Р В°Р в„–Р В» Р Р…Р Вµ Р В·Р Р…Р В°Р в„–Р Т‘Р ВµР Р…Р С•: {}", telegram_exe_path.display());
+            println!("File not found: {}", telegram_exe_path.display());
         }
         let _ = app.emit("telegram-launch-progress", LaunchProgressPayload {
             batch_index: index + 1,
@@ -581,11 +585,10 @@ async fn get_available_links() -> Result<Vec<(String, serde_json::Value)>, Strin
 #[tauri::command]
 async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String> {
     println!(
-        "[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ: app_name={}, app_type={}, ref_link={}",
+        "[LOG] Link params: app_name={}, app_type={}, ref_link={}",
         link_params.app_name, link_params.app_type, link_params.ref_link
     );
-    
-    // Р¤РѕСЂРјСѓС”РјРѕ URL Р·Р° С‚РёРј Р¶Рµ РїСЂРёРЅС†РёРїРѕРј, С‰Рѕ Р№ Python СЃРєСЂРёРїС‚.
+
     let mut link = format!("tg://resolve?domain={}", link_params.app_name);
     
     if !link_params.app_type.is_empty() {
@@ -600,11 +603,11 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
                         .find(|(key, _)| key == "startapp")
                         .map(|(_, value)| value.to_string())
                         .unwrap_or_else(|| {
-                            println!("[LOG] РќРµ РІРґР°Р»РѕСЃСЏ РІРёС‚СЏРіРЅСѓС‚Рё startapp, РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ ref_link СЏРє С”");
+                            println!("[LOG] Failed to extract startapp, using ref_link as is");
                             link_params.ref_link.clone()
                         })
                 } else {
-                    println!("[LOG] РќРµ РІРґР°Р»РѕСЃСЏ СЂРѕР·РїР°СЂСЃРёС‚Рё URL, РІРёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ ref_link СЏРє С”");
+                    println!("[LOG] Failed to parse URL, using ref_link as is");
                     link_params.ref_link.clone()
                 }
             } else {
@@ -625,10 +628,10 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
         } else {
             link += "&start";
         }
-        println!("[LOG] Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ start Р±РµР· app_type");
+        println!("[LOG] Using start without app_type");
     }
 
-    println!("[LOG] РџР°СЂР°РјРµС‚СЂРё РїРѕСЃРёР»Р°РЅРЅСЏ (РіРѕС‚РѕРІРµ): {}", link);
+    println!("[LOG] Final link: {}", link);
     Ok(link)
 }
 
@@ -982,7 +985,7 @@ async fn open_directory_dialog(app: tauri::AppHandle) -> Result<String, String> 
     
     app.dialog()
         .file()
-        .set_title("Р’РёР±РµСЂС–С‚СЊ РїР°РїРєСѓ Р· Р°РєР°СѓРЅС‚Р°РјРё")
+        .set_title("Select accounts folder")
         .pick_folder(move |result| {
             let _ = tx.send(result);
         });
@@ -1035,17 +1038,17 @@ async fn close_telegram_processes(pids: Vec<u32>) -> Result<String, String> {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                        println!("Telegram process {} terminated", pid);
                     } else {
                         println!(
-                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            "Failed to terminate process {}: {}",
                             pid,
                             String::from_utf8_lossy(&output.stderr)
                         );
                     }
                 }
                 Err(e) => {
-                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
+                    println!("Error terminating process {}: {}", pid, e);
                 }
             }
         }
@@ -1060,23 +1063,132 @@ async fn close_telegram_processes(pids: Vec<u32>) -> Result<String, String> {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                        println!("Telegram process {} terminated", pid);
                     } else {
                         println!(
-                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            "Failed to terminate process {}: {}",
                             pid,
                             String::from_utf8_lossy(&output.stderr)
                         );
                     }
                 }
                 Err(e) => {
-                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
+                    println!("Error terminating process {}: {}", pid, e);
                 }
             }
         }
     }
 
-    Ok(format!("Р—Р°РІРµСЂС€РµРЅРѕ {} РїСЂРѕС†РµСЃС–РІ", closed_count))
+    Ok(format!("Closed {} processes", closed_count))
+}
+
+#[tauri::command]
+async fn close_telegram_accounts_batch(account_ids: Vec<i32>) -> Result<String, String> {
+    use std::process::Command;
+
+    if account_ids.is_empty() {
+        return Ok("Closed 0 processes".to_string());
+    }
+
+    let settings = load_settings_from_disk();
+    let root_raw = settings.telegram_folder_path.trim().to_string();
+    if root_raw.is_empty() {
+        return Err("Telegram folder path is not configured".to_string());
+    }
+    let root = normalize_path_for_match(&root_raw);
+
+    let account_dirs: Vec<String> = account_ids
+        .into_iter()
+        .map(|account_id| {
+            normalize_path_for_match(
+                &Path::new(&root_raw)
+                    .join(format!("TG {}", account_id))
+                    .to_string_lossy(),
+            )
+        })
+        .filter(|dir| !dir.is_empty() && dir.starts_with(&root))
+        .collect();
+
+    if account_dirs.is_empty() {
+        return Ok("Closed 0 processes".to_string());
+    }
+
+    let processes = list_running_telegram_processes();
+    let mut target_pids: Vec<u32> = Vec::new();
+    let mut seen: HashSet<u32> = HashSet::new();
+
+    for (pid, _name, path) in processes {
+        if !seen.insert(pid) {
+            continue;
+        }
+        let path_norm = normalize_path_for_match(&path);
+        if account_dirs.iter().any(|dir| path_norm == *dir || path_norm.starts_with(&(dir.clone() + "/"))) {
+            target_pids.push(pid);
+        }
+    }
+
+    if target_pids.is_empty() {
+        return Ok("Closed 0 processes".to_string());
+    }
+
+    let mut closed_count = 0;
+
+    for pid in target_pids {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            match Command::new("taskkill")
+                .creation_flags(CREATE_NO_WINDOW)
+                .args(["/F", "/PID", &pid.to_string()])
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        closed_count += 1;
+                        println!("Telegram process {} terminated (batch)", pid);
+                    } else {
+                        println!(
+                            "Failed to terminate process {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!("Error terminating process {}: {}", pid, e);
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            match Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        closed_count += 1;
+                        println!("Telegram process {} terminated (batch)", pid);
+                    } else {
+                        println!(
+                            "Failed to terminate process {}: {}",
+                            pid,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!("Error terminating process {}: {}", pid, e);
+                }
+            }
+        }
+    }
+
+    Ok(format!("Closed {} processes", closed_count))
 }
 
 #[tauri::command]
@@ -1086,7 +1198,7 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
     let settings = load_settings_from_disk();
     let root = settings.telegram_folder_path.trim().to_string();
     if root.is_empty() {
-        return Err("РќРµ Р·РЅР°Р№РґРµРЅРѕ Р·Р°РїСѓС‰РµРЅРёС… РїСЂРѕС†РµСЃС–РІ Telegram РґР»СЏ С†СЊРѕРіРѕ Р°РєР°СѓРЅС‚Р°".to_string());
+        return Err("Telegram folder path is not configured".to_string());
     }
 
     let account_dir = Path::new(&root).join(format!("TG {}", account_id));
@@ -1110,7 +1222,7 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
     }
 
     if target_pids.is_empty() {
-        return Err("РќРµ Р·РЅР°Р№РґРµРЅРѕ Р·Р°РїСѓС‰РµРЅРёС… РїСЂРѕС†РµСЃС–РІ Telegram РґР»СЏ С†СЊРѕРіРѕ Р°РєР°СѓРЅС‚Р°".to_string());
+        return Err("No running Telegram processes found for this account".to_string());
     }
 
     let mut closed_count = 0;
@@ -1129,17 +1241,17 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                        println!("Telegram process {} terminated", pid);
                     } else {
                         println!(
-                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            "Failed to terminate process {}: {}",
                             pid,
                             String::from_utf8_lossy(&output.stderr)
                         );
                     }
                 }
                 Err(e) => {
-                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
+                    println!("Error terminating process {}: {}", pid, e);
                 }
             }
         }
@@ -1154,23 +1266,23 @@ async fn close_single_account(account_id: i32) -> Result<String, String> {
                 Ok(output) => {
                     if output.status.success() {
                         closed_count += 1;
-                        println!("РџСЂРѕС†РµСЃ Telegram {} Р·Р°РІРµСЂС€РµРЅРѕ", pid);
+                        println!("Telegram process {} terminated", pid);
                     } else {
                         println!(
-                            "РќРµ РІРґР°Р»РѕСЃСЏ Р·Р°РІРµСЂС€РёС‚Рё РїСЂРѕС†РµСЃ {}: {}",
+                            "Failed to terminate process {}: {}",
                             pid,
                             String::from_utf8_lossy(&output.stderr)
                         );
                     }
                 }
                 Err(e) => {
-                    println!("РџРѕРјРёР»РєР° РїСЂРё Р·Р°РІРµСЂС€РµРЅРЅС– РїСЂРѕС†РµСЃСѓ {}: {}", pid, e);
+                    println!("Error terminating process {}: {}", pid, e);
                 }
             }
         }
     }
 
-    Ok(format!("Р—Р°РІРµСЂС€РµРЅРѕ {} РїСЂРѕС†РµСЃС–РІ Telegram", closed_count))
+    Ok(format!("Closed {} Telegram processes", closed_count))
 }
 #[tauri::command]
 async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, String> {

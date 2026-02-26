@@ -161,6 +161,7 @@
   display: none; /* Chrome/Safari */
 }
 
+
 /* Tauri Window Dragging */
 .app-drag-region {
   -webkit-app-region: drag;

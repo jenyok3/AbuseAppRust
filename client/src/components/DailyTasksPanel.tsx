@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { type DailyReminderRepeat } from "@/lib/localStore";
+import { type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
 
 const UKR_MONTHS = [
   "січня",
@@ -66,7 +66,7 @@ export function DailyTasksPanel() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState("");
-  const [editingTaskOriginalRemindAt, setEditingTaskOriginalRemindAt] = useState<number | null>(null);
+  const [editingTaskReminders, setEditingTaskReminders] = useState<LocalDailyReminder[]>([]);
   const [editingTaskReminderDate, setEditingTaskReminderDate] = useState("");
   const [editingTaskReminderHour, setEditingTaskReminderHour] = useState("");
   const [editingTaskReminderMinute, setEditingTaskReminderMinute] = useState("");
@@ -96,6 +96,9 @@ export function DailyTasksPanel() {
     const pad = (value: number) => String(value).padStart(2, "0");
     return `${date.getDate()} ${UKR_MONTHS[date.getMonth()]} о ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   };
+
+  const getRepeatLabel = (value?: DailyReminderRepeat) =>
+    REPEAT_OPTIONS.find((option) => option.value === value)?.label ?? "Ніколи";
 
   const parseDateTextToDate = (value: string): Date | null => {
     const match = value.trim().toLowerCase().match(/^(\d{1,2})\s+([а-яіїєґ]+)$/i);
@@ -183,6 +186,19 @@ export function DailyTasksPanel() {
     return { isValid: true, value: candidate.getTime() };
   };
 
+  const mergeReminder = (remindAt: number, repeatRule: DailyReminderRepeat) => {
+    const trimmed = editingTaskReminders.filter((reminder) => reminder.remindAt !== remindAt);
+    return [
+      ...trimmed,
+      {
+        id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        remindAt,
+        remindedAt: null,
+        repeatRule,
+      },
+    ];
+  };
+
   const normalizeMinuteInput = (raw: string): string => {
     const digits = raw.replace(/\D/g, "").slice(0, 2);
     if (!digits) return "";
@@ -219,28 +235,21 @@ export function DailyTasksPanel() {
   const canSaveTaskEdit = !!editingTaskTitle.trim() && parsedReminder.isValid;
   const isEmptyState = !isLoading && (tasks?.length ?? 0) === 0;
 
-  const openEditTaskModal = (task: { id: number; title: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat; remindedAt?: number | null }) => {
-    const validRemindAt =
-      Number.isFinite(Number(task.remindAt)) && Number(task.remindAt) > 0
-        ? Number(task.remindAt)
-        : null;
-    const isReminded = Boolean(
-      Number.isFinite(Number(task.remindedAt)) &&
-        validRemindAt &&
-        validRemindAt <= Date.now()
-    );
+  const openEditTaskModal = (task: { id: number; title: string; reminders?: LocalDailyReminder[] }) => {
+    const reminders = Array.isArray(task.reminders) ? task.reminders : [];
+    const sortedReminders = reminders
+      .slice()
+      .sort((a, b) => Number(a.remindAt) - Number(b.remindAt));
 
     setEditingTaskId(task.id);
     setEditingTaskTitle(task.title);
-    setEditingTaskOriginalRemindAt(isReminded ? null : validRemindAt);
-    setEditingTaskReminderDate(isReminded ? "" : formatReminderDateText(validRemindAt ?? Date.now()));
+    setEditingTaskReminders(sortedReminders);
+    setEditingTaskReminderDate("");
+    setEditingTaskReminderHour("");
+    setEditingTaskReminderMinute("");
+    setEditingTaskRepeatRule("never");
 
-    const timeText = isReminded ? "" : formatReminderTimeText(validRemindAt);
-    setEditingTaskReminderHour(timeText.slice(0, 2));
-    setEditingTaskReminderMinute(timeText.slice(2, 4));
-    setEditingTaskRepeatRule(isReminded ? "never" : (task.repeatRule ?? "never"));
-
-    const selectedDate = validRemindAt ? new Date(validRemindAt) : new Date();
+    const selectedDate = sortedReminders[0]?.remindAt ? new Date(sortedReminders[0].remindAt) : new Date();
     setCalendarSelectedDate(selectedDate);
     setCalendarMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     setIsCalendarMode(false);
@@ -251,7 +260,7 @@ export function DailyTasksPanel() {
     setIsEditModalOpen(false);
     setEditingTaskId(null);
     setEditingTaskTitle("");
-    setEditingTaskOriginalRemindAt(null);
+    setEditingTaskReminders([]);
     setEditingTaskReminderDate("");
     setEditingTaskReminderHour("");
     setEditingTaskReminderMinute("");
@@ -285,8 +294,14 @@ export function DailyTasksPanel() {
               <div className="text-center text-muted-foreground text-sm opacity-50">Немає щоденних завдань</div>
             ) : (
               tasks?.map((task) => {
-                const isReminded = !!(task.remindedAt && task.remindAt && task.remindAt <= Date.now());
-                const hasReminder = Number.isFinite(Number(task.remindAt)) && Number(task.remindAt) > 0;
+                const reminders = Array.isArray(task.reminders) ? task.reminders : [];
+                const now = Date.now();
+                const hasReminder = reminders.some((reminder) => reminder.remindAt > now && !reminder.remindedAt);
+                const isReminded =
+                  reminders.length > 0 &&
+                  reminders.every((reminder) =>
+                    reminder.remindedAt || reminder.remindAt <= now
+                  );
 
                 return (
                   <div key={task.id} className="flex flex-col gap-2">
@@ -346,7 +361,7 @@ export function DailyTasksPanel() {
           </div>
         </ScrollArea>
 
-        <form onSubmit={handleCreate} className="mt-4">
+        <form onSubmit={handleCreate} className="mt-4" autoComplete="off">
           <div className="relative group">
             <Input
               value={newTaskTitle}
@@ -453,18 +468,29 @@ export function DailyTasksPanel() {
                 <h3 className="text-xl font-display font-bold text-white mb-5">Редагувати завдання</h3>
                 <form
                   className="space-y-4"
+                  autoComplete="off"
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!editingTaskId || !editingTaskTitle.trim() || !parsedReminder.isValid) return;
-                    const nextRepeatRule = parsedReminder.value ? editingTaskRepeatRule : "never";
+                    let nextReminders = editingTaskReminders;
+                    if (parsedReminder.value) {
+                      nextReminders = mergeReminder(parsedReminder.value, editingTaskRepeatRule);
+                    }
                     updateTask(
                       {
                         id: editingTaskId,
                         title: editingTaskTitle.trim(),
-                        remindAt: parsedReminder.value,
-                        repeatRule: nextRepeatRule,
+                        reminders: nextReminders,
                       },
-                      { onSuccess: closeEditTaskModal }
+                      {
+                        onSuccess: () => {
+                          setEditingTaskReminderDate("");
+                          setEditingTaskReminderHour("");
+                          setEditingTaskReminderMinute("");
+                          setEditingTaskRepeatRule("never");
+                          closeEditTaskModal();
+                        },
+                      }
                     );
                   }}
                 >
@@ -577,25 +603,33 @@ export function DailyTasksPanel() {
                       </Select>
                     </div>
 
-                    {editingTaskOriginalRemindAt ? (
-                      <div className="pt-1">
+                    {editingTaskReminders.length > 0 ? (
+                      <div className="pt-2 space-y-2">
                         <p className="text-sm font-normal text-muted-foreground text-center">Заплановано</p>
-                        <div className="mt-1 flex items-center justify-between">
-                          <span className="text-sm text-white/85">{formatReminderDisplayText(editingTaskOriginalRemindAt)}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingTaskOriginalRemindAt(null);
-                              setEditingTaskReminderDate("");
-                              setEditingTaskReminderHour("");
-                              setEditingTaskReminderMinute("");
-                              setEditingTaskRepeatRule("never");
-                            }}
-                            className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                          >
-                            Видалити
-                          </button>
-                        </div>
+                        {editingTaskReminders
+                          .slice()
+                          .sort((a, b) => a.remindAt - b.remindAt)
+                          .map((reminder) => (
+                            <div key={reminder.id || `${reminder.remindAt}`} className="flex items-center justify-between">
+                              <span className="text-sm text-white/85">
+                                {formatReminderDisplayText(reminder.remindAt)}
+                                {reminder.repeatRule && reminder.repeatRule !== "never"
+                                  ? ` • ${getRepeatLabel(reminder.repeatRule)}`
+                                  : ""}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTaskReminders((prev) =>
+                                    prev.filter((item) => item.id !== reminder.id)
+                                  );
+                                }}
+                                className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                              >
+                                Видалити
+                              </button>
+                            </div>
+                          ))}
                       </div>
                     ) : null}
                   </div>

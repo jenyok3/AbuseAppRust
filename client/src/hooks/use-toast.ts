@@ -6,7 +6,8 @@ import type {
 } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 3500
+const TOAST_AUTO_DISMISS_DELAY = 2500
+const TOAST_REMOVE_DELAY = 300
 
 type ToasterToast = ToastProps & {
   id: string
@@ -54,6 +55,7 @@ interface State {
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+const dismissTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
@@ -69,6 +71,22 @@ const addToRemoveQueue = (toastId: string) => {
   }, TOAST_REMOVE_DELAY)
 
   toastTimeouts.set(toastId, timeout)
+}
+
+const addToDismissQueue = (toastId: string) => {
+  if (dismissTimeouts.has(toastId)) {
+    return
+  }
+
+  const timeout = setTimeout(() => {
+    dismissTimeouts.delete(toastId)
+    dispatch({
+      type: "DISMISS_TOAST",
+      toastId,
+    })
+  }, TOAST_AUTO_DISMISS_DELAY)
+
+  dismissTimeouts.set(toastId, timeout)
 }
 
 export const reducer = (state: State, action: Action): State => {
@@ -114,10 +132,22 @@ export const reducer = (state: State, action: Action): State => {
     }
     case "REMOVE_TOAST":
       if (action.toastId === undefined) {
+        dismissTimeouts.forEach((timeout) => clearTimeout(timeout))
+        dismissTimeouts.clear()
+        toastTimeouts.forEach((timeout) => clearTimeout(timeout))
+        toastTimeouts.clear()
         return {
           ...state,
           toasts: [],
         }
+      }
+      if (dismissTimeouts.has(action.toastId)) {
+        clearTimeout(dismissTimeouts.get(action.toastId)!)
+        dismissTimeouts.delete(action.toastId)
+      }
+      if (toastTimeouts.has(action.toastId)) {
+        clearTimeout(toastTimeouts.get(action.toastId)!)
+        toastTimeouts.delete(action.toastId)
       }
       return {
         ...state,
@@ -160,6 +190,7 @@ function toast({ ...props }: Toast) {
       },
     },
   })
+  addToDismissQueue(id)
 
   return {
     id: id,

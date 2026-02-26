@@ -58,55 +58,62 @@ export function DailyReminderScheduler() {
       const now = Date.now();
 
       for (const task of tasks) {
-        if (!task?.remindAt || task.remindAt > now) continue;
         if (task.isCompleted) continue;
-        if (task.remindedAt) continue;
-        const notifyKey = `${task.id}:${task.remindAt}`;
-        if (notifiedRef.current.has(notifyKey)) continue;
+        const reminders = Array.isArray(task.reminders) ? task.reminders : [];
+        for (const reminder of reminders) {
+          if (!reminder?.remindAt || reminder.remindAt > now) continue;
+          if (reminder.remindedAt) continue;
+          const notifyKey = `${task.id}:${reminder.id}:${reminder.remindAt}`;
+          if (notifiedRef.current.has(notifyKey)) continue;
 
-        let sent = false;
-        try {
-          await invoke("send_reminder_notification", {
-            title: "AbuseApp",
-            body: `Нагадування: ${task.title}`,
-          });
-          sent = true;
-        } catch (error) {
-          console.error("Native reminder notification failed:", error);
+          let sent = false;
+          try {
+            await invoke("send_reminder_notification", {
+              title: "AbuseApp",
+              body: `Нагадування: ${task.title}`,
+            });
+            sent = true;
+          } catch (error) {
+            console.error("Native reminder notification failed:", error);
+          }
+
+          if (!sent) {
+            const granted = await ensureNotificationPermission();
+            if (!granted) continue;
+
+            const notification = new window.Notification("AbuseApp", {
+              body: `Нагадування: ${task.title}`,
+              tag: `daily-task-${task.id}`,
+            });
+            notification.onclick = async () => {
+              try {
+                notification.close();
+                await invoke("show_window");
+              } catch (error) {
+                console.error("Failed to show window from reminder click:", error);
+              }
+            };
+          }
+
+          notifiedRef.current.add(notifyKey);
+          const repeatRule = localStore.normalizeRepeatRule(reminder.repeatRule);
+          const nextReminderTime = getNextReminderTime(reminder.remindAt, repeatRule);
+          if (nextReminderTime) {
+            localStore.updateDailyTaskReminderEntry(task.id, reminder.id, {
+              remindAt: nextReminderTime,
+              repeatRule,
+              remindedAt: null,
+            });
+            localStore.addLog(`Нагадування: ${task.title}`);
+            queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+          } else {
+            const remindedAt = Date.now();
+            markReminded({ id: task.id, reminderId: reminder.id, remindedAt });
+            localStore.addLog(`Нагадування: ${task.title}`);
+          }
+
+          queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
         }
-
-        if (!sent) {
-          const granted = await ensureNotificationPermission();
-          if (!granted) continue;
-
-          const notification = new window.Notification("AbuseApp", {
-            body: `Нагадування: ${task.title}`,
-            tag: `daily-task-${task.id}`,
-          });
-          notification.onclick = async () => {
-            try {
-              notification.close();
-              await invoke("show_window");
-            } catch (error) {
-              console.error("Failed to show window from reminder click:", error);
-            }
-          };
-        }
-
-        notifiedRef.current.add(notifyKey);
-        const repeatRule = localStore.normalizeRepeatRule(task.repeatRule);
-        const nextReminderTime = getNextReminderTime(task.remindAt, repeatRule);
-        if (nextReminderTime) {
-          localStore.updateDailyTask(task.id, { remindAt: nextReminderTime, repeatRule });
-          localStore.addLog(`Нагадування: ${task.title}`);
-          queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
-        } else {
-          const remindedAt = Date.now();
-          markReminded({ id: task.id, remindedAt });
-          localStore.addLog(`Нагадування: ${task.title}`);
-        }
-
-        queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
       }
     };
 

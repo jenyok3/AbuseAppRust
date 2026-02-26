@@ -1,6 +1,6 @@
 [package]
 name = "abuseapp"
-version = "1.0.0"
+version = "1.0.2"
 description = "AbuseApp Desktop - Account Farm Management Dashboard"
 authors = ["AbuseApp Team"]
 license = "MIT"

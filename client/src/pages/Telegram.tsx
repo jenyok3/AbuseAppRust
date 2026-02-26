@@ -1,6 +1,6 @@
 ﻿import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Rocket, Loader2, ExternalLink, Plus, Pencil, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, Search, Filter } from "lucide-react";
+import { Rocket, Loader2, ExternalLink, Plus, Pencil, Trash2, Terminal, Circle, Wifi, Layers, GhostIcon as Ghost, Calendar, AppWindow, Clock, X, RefreshCw, SearchX, Search, Filter, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TelegramLink } from '../types';
@@ -19,16 +19,58 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { GhostIcon } from "@/components/ui/ghost-icon";
 import { AccountStatsWidget } from "@/components/AccountStatsWidget";
 import { accountStatus, accountStatusLabels, type AccountStatus } from "@/lib/accountStatus";
-import { readDirectory, launchAccounts, launchSingleAccount, launchAccountsForProfiles, getAvailableLinks, closeTelegramProcesses, closeSingleAccount, getRunningTelegramProcesses, getAccountStats } from "@/lib/tauri-api";
+import {
+  readDirectory,
+  launchAccounts,
+  launchSingleAccount,
+  launchAccountsForProfiles,
+  getAvailableLinks,
+  closeTelegramProcesses,
+  closeTelegramAccountsBatch,
+  closeSingleAccount,
+  getRunningTelegramProcesses,
+  getAccountStats,
+  type AccountStats,
+} from "@/lib/tauri-api";
 import { ProjectModal } from "@/components/ProjectModal";
 import { CustomLinkModal } from "@/components/CustomLinkModal";
 import { Progress } from "@/components/ui/progress";
 import { SegmentProgress } from "@/components/ui/segment-progress";
 import { listen } from "@tauri-apps/api/event";
-import { projectStorage } from "@/lib/projectStorage";
-import { localStore, type LocalHashtagMeta } from "@/lib/localStore";
+import { projectStorage, type ProjectData } from "@/lib/projectStorage";
+import { localStore, type LocalHashtagMeta, type TelegramLaunchParams } from "@/lib/localStore";
 import { useQueryClient } from "@tanstack/react-query";
 import blockedGhostIcon from "@/assets/icons/blocked-ghost-custom.png";
+import {
+  stableAccountId,
+  getTelegramBatchSize,
+  buildProfileList,
+  normalizeHashtag,
+  hasUserNotes,
+  getAccountHashtags,
+  isSystemGeneratedNote,
+  normalizeText,
+  processBelongsToAccount,
+  findPidForAccount,
+  type TelegramAccount,
+  type TelegramProcess,
+  type TelegramProjectTuple,
+} from "@/lib/telegram-helpers";
+
+type DirectoryEntry = {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size?: number;
+  modified?: string | number | Date;
+};
+
+type LaunchProgressEvent = {
+  payload?: {
+    batch_index?: number;
+    batchIndex?: number;
+  };
+};
 
 export default function Telegram() {
   const { toast } = useToast();
@@ -54,26 +96,29 @@ export default function Telegram() {
   const [hashtagEditLink, setHashtagEditLink] = useState<string>("");
   const [hashtagEditErrors, setHashtagEditErrors] = useState<string[]>([]);
   const [showPlansModal, setShowPlansModal] = useState(false);
-  const [accounts, setAccounts] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<TelegramAccount[]>([]);
   const [isAccountsLoading, setIsAccountsLoading] = useState(true);
-  const [availableLinks, setAvailableLinks] = useState<any[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [availableLinks, setAvailableLinks] = useState<TelegramProjectTuple[]>([]);
   const [launchedPids, setLaunchedPids] = useState<number[]>([]);
   const [pendingProfiles, setPendingProfiles] = useState<number[]>([]);
   const [batchSize, setBatchSize] = useState<number>(1);
-  const [launchParams, setLaunchParams] = useState<any | null>(null);
+  const [launchParams, setLaunchParams] = useState<TelegramLaunchParams | null>(null);
   const [totalProfiles, setTotalProfiles] = useState<number>(0);
   const [launchProgressCount, setLaunchProgressCount] = useState<number>(0);
   const [launchMode, setLaunchMode] = useState<"project" | "plain" | null>(null);
   const batchBaseCountRef = useRef(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
-  const [editingProject, setEditingProject] = useState<any>(null);
+  const [editingProject, setEditingProject] = useState<{ name: string; ref_link: string } | null>(null);
   const [isProjectSelectOpen, setIsProjectSelectOpen] = useState(false);
   const [isCustomLinkModalOpen, setIsCustomLinkModalOpen] = useState(false);
   const [isHashtagModalOpen, setIsHashtagModalOpen] = useState(false);
   const [hashtagModalAccountId, setHashtagModalAccountId] = useState<number | null>(null);
   const [hashtagInput, setHashtagInput] = useState("");
   const [openAccounts, setOpenAccounts] = useState<Map<number, number>>(new Map()); // accountId -> PID
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [editingDisplayName, setEditingDisplayName] = useState<string>("");
   const [realStats, setRealStats] = useState<{running: number, blocked: number, total: number}>({ running: 0, blocked: 0, total: 0 });
   const [statsLoading, setStatsLoading] = useState(false);
   const statsRefreshInFlight = useRef(false);
@@ -84,69 +129,11 @@ export default function Telegram() {
   const launchHydratedRef = useRef(false);
   const cancelLaunchRef = useRef(false);
   const lastLaunchProjectRef = useRef<string>("");
+  const lastBatchProfileIdsRef = useRef<number[]>([]);
 
-  const stableAccountId = (seed: string): number => {
-    let hash = 5381;
-    for (let i = 0; i < seed.length; i += 1) {
-      hash = ((hash << 5) + hash) ^ seed.charCodeAt(i);
-    }
-    return Math.abs(hash) || 1;
-  };
-  const getTelegramBatchSize = () => {
-    const settings = localStore.getSettings();
-    const raw = String(settings.telegramThreads || "1").trim();
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  };
-  const shuffleArray = (values: number[]) => {
-    for (let i = values.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [values[i], values[j]] = [values[j], values[i]];
-    }
-  };
-  const buildProfileList = (start: number, end: number, mix: boolean): number[] => {
-    const list: number[] = [];
-    for (let i = start; i <= end; i += 1) {
-      list.push(i);
-    }
-    if (mix) {
-      shuffleArray(list);
-    }
-    return list;
-  };
+  const readTelegramBatchSize = () => getTelegramBatchSize(localStore.getSettings().telegramThreads);
   const logAction = (message: string) => {
     createLog({ message });
-  };
-
-  const normalizeText = (value: unknown): string => String(value ?? "").toLowerCase().trim();
-  const normalizePath = (value: unknown): string =>
-    normalizeText(value).replace(/\\/g, "/").replace(/\/+/g, "/");
-  const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const extractProfileNumberFromText = (value: unknown): number | null => {
-    const text = normalizeText(value);
-    const m = text.match(/\btg\s*(\d+)\b/i);
-    if (!m) return null;
-    const num = Number(m[1]);
-    return Number.isFinite(num) ? num : null;
-  };
-  const normalizeHashtag = (value: string): string =>
-    value.trim().replace(/^#+/, "").toLowerCase().replace(/\s+/g, "");
-  const isSystemGeneratedNote = (value: unknown): boolean => {
-    const text = String(value ?? "").trim();
-    if (!text) return false;
-    return /(?:\([^)]+\)\s*-\s*(?:active|inactive|blocked))(?:\s*\([^)]+\))?$/i.test(text);
-  };
-  const hasUserNotes = (account: any): boolean => {
-    const text = String(account?.notes ?? "").trim();
-    if (!text) return false;
-    return !isSystemGeneratedNote(text);
-  };
-  const getAccountHashtags = (account: any): string[] => {
-    const raw = Array.isArray(account?.hashtags) ? account.hashtags : [];
-    const normalized = raw
-      .map((tag: unknown) => normalizeHashtag(String(tag ?? "")))
-      .filter((tag: string) => tag.length > 0);
-    return Array.from(new Set(normalized));
   };
 
   const getAllProfileIds = (): number[] => {
@@ -156,66 +143,18 @@ export default function Telegram() {
     return Array.from(new Set(ids)).sort((a, b) => a - b);
   };
 
-  const processBelongsToAccount = (account: any, process: any): boolean => {
-    const accountName = normalizeText(account?.name);
-    const accountPath = normalizePath(String(account?.notes || "").split(" (")[0]);
-    const processPath = normalizePath(process?.path);
-    const processName = normalizeText(process?.name);
-    const accountProfile =
-      extractProfileNumberFromText(accountName) ??
-      extractProfileNumberFromText(accountPath);
-    const processProfile =
-      extractProfileNumberFromText(processPath) ??
-      extractProfileNumberFromText(processName);
-
-    // If both sides have TG profile numbers, enforce exact match.
-    if (accountProfile !== null && processProfile !== null) {
-      if (accountProfile !== processProfile) return false;
-      return true;
-    }
-
-    // Primary matcher: exact account directory path (prevents "1" matching "13").
-    if (accountPath && processPath) {
-      if (processPath === accountPath || processPath.startsWith(`${accountPath}/`)) {
-        return true;
-      }
-    }
-
-    // Fallback matcher for cases without path metadata.
-    if (!accountName) return false;
-    const namePattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(accountName)}([^a-z0-9]|$)`, "i");
-    return namePattern.test(processPath) || namePattern.test(processName);
-  };
-
-  const findPidForAccount = (
-    account: any,
-    runningProcesses: any[],
-    usedPids: Set<number>
-  ): number | null => {
-    for (const process of runningProcesses) {
-      const pid = Number(process?.pid);
-      if (!Number.isFinite(pid) || usedPids.has(pid)) continue;
-
-      if (processBelongsToAccount(account, process)) {
-        return pid;
-      }
-    }
-
-    return null;
-  };
-
   const syncAccountsRunningStatus = async () => {
     try {
-      const runningProcesses = await getRunningTelegramProcesses() as any[];
+      const runningProcesses = await getRunningTelegramProcesses() as TelegramProcess[];
       const runningPidSet = new Set<number>(
         runningProcesses
-          .map((p: any) => Number(p?.pid))
+          .map((p) => Number(p?.pid))
           .filter((pid: number) => Number.isFinite(pid))
       );
 
-      setAccounts((prevAccounts: any[]) => {
-        const nextAccounts = prevAccounts.map((acc: any) => {
-          const isRunning = runningProcesses.some((process: any) =>
+      setAccounts((prevAccounts: TelegramAccount[]) => {
+        const nextAccounts = prevAccounts.map((acc) => {
+          const isRunning = runningProcesses.some((process) =>
             processBelongsToAccount(acc, process)
           );
 
@@ -263,7 +202,7 @@ export default function Telegram() {
     }
   };
   const [accountStatusOverrides, setAccountStatusOverrides] = useState<Map<string, AccountStatus>>(new Map());
-  const getEffectiveStatus = (account: any) =>
+  const getEffectiveStatus = (account: TelegramAccount) =>
     accountStatusOverrides.get(account?.name) ?? account?.status;
 
   // Function to analyze specific account in detail
@@ -282,11 +221,11 @@ export default function Telegram() {
       }
       
       // Get all directories to find the specific account
-      const files = await readDirectory(folderPath) as any[];
-      const directories = files.filter((file: any) => file.is_dir);
-      const tgDirectories = directories.filter((dir: any) => dir.name.toLowerCase().startsWith('tg'));
+      const files = await readDirectory(folderPath) as DirectoryEntry[];
+      const directories = files.filter((file) => file.is_dir);
+      const tgDirectories = directories.filter((dir) => dir.name.toLowerCase().startsWith('tg'));
       
-      const accountDir = tgDirectories.find((dir: any) => dir.name === accountName);
+      const accountDir = tgDirectories.find((dir) => dir.name === accountName);
       if (!accountDir) {
         toast({
           title: "Помилка",
@@ -297,7 +236,7 @@ export default function Telegram() {
       }
       
       const tdataPath = `${accountDir.path}/tdata`;
-      const tdataFiles = await readDirectory(tdataPath) as any[];
+      const tdataFiles = await readDirectory(tdataPath) as DirectoryEntry[];
       
       console.log(`=== DETAILED ANALYSIS FOR ${accountName} ===`);
       console.log('Total files:', tdataFiles.length);
@@ -360,7 +299,7 @@ export default function Telegram() {
 
       const settings = localStore.getSettings();
       const folderPath = settings.telegramFolderPath || "";
-      const raw = await getAccountStats(folderPath) as any;
+      const raw = await getAccountStats(folderPath) as AccountStats;
       const finalStats = {
         total: Number(raw?.total ?? 0),
         running: Number(raw?.running ?? raw?.active ?? 0),
@@ -537,10 +476,10 @@ export default function Telegram() {
     if (saved?.launchedPids?.length) {
       (async () => {
         try {
-          const running = await getRunningTelegramProcesses() as any[];
+          const running = await getRunningTelegramProcesses() as TelegramProcess[];
           const runningPidSet = new Set<number>(
             running
-              .map((p: any) => Number(p?.pid))
+              .map((p) => Number(p?.pid))
               .filter((pid: number) => Number.isFinite(pid))
           );
           const filtered = saved.launchedPids.filter((pid: number) => runningPidSet.has(pid));
@@ -562,10 +501,10 @@ export default function Telegram() {
           const ageMs = Date.now() - Number(saved.updatedAt ?? Date.now());
           if (ageMs < LAUNCH_STALE_MS) return;
 
-          const running = await getRunningTelegramProcesses() as any[];
+          const running = await getRunningTelegramProcesses() as TelegramProcess[];
           const runningPidSet = new Set<number>(
             running
-              .map((p: any) => Number(p?.pid))
+              .map((p) => Number(p?.pid))
               .filter((pid: number) => Number.isFinite(pid))
           );
           const hasSavedRunning = Array.isArray(saved.launchedPids)
@@ -603,7 +542,7 @@ export default function Telegram() {
 
   useEffect(() => {
     let unlisten: null | (() => void) = null;
-    listen('telegram-launch-progress', (event: any) => {
+    listen('telegram-launch-progress', (event: LaunchProgressEvent) => {
       const payload = (event && event.payload) || {};
       const batchIndex = Number(payload.batch_index ?? payload.batchIndex ?? 0);
       if (!Number.isFinite(batchIndex) || batchIndex <= 0) return;
@@ -683,13 +622,13 @@ export default function Telegram() {
   }, [availableLinks, selectedProject]);
 
   // Function to get REAL account status by checking actual account state
-  const determineAccountStatus = async (tdataFiles: any[], accountName: string, accountPath: string): Promise<AccountStatus> => {
+  const determineAccountStatus = async (tdataFiles: DirectoryEntry[], accountName: string, accountPath: string): Promise<AccountStatus> => {
     try {
       console.log(`Checking REAL status for account: ${accountName} at ${accountPath}`);
       
       // Method 1: Check if account is currently running
-      const runningProcesses = await getRunningTelegramProcesses() as any[];
-      const isAccountRunning = runningProcesses.some((process: any) => {
+      const runningProcesses = await getRunningTelegramProcesses() as TelegramProcess[];
+      const isAccountRunning = runningProcesses.some((process) => {
         const processPath = process.path ? process.path.toLowerCase() : '';
         const processName = process.name ? process.name.toLowerCase() : '';
 
@@ -708,7 +647,7 @@ export default function Telegram() {
         'error', 'failed', 'blocked',
       ];
 
-      const hasDeletionIndicators = tdataFiles.some((f: any) =>
+      const hasDeletionIndicators = tdataFiles.some((f) =>
         telegramDeletionIndicators.some((indicator) =>
           String(f.name || '').toLowerCase().includes(indicator)
         )
@@ -735,33 +674,33 @@ export default function Telegram() {
       console.log('Loading accounts from:', folderPath);
       
       // Use real directory reading via Tauri API
-      const files = await readDirectory(folderPath) as any[];
+      const files = await readDirectory(folderPath) as DirectoryEntry[];
       console.log('All files found:', files);
       
       // Find all directories that might contain accounts
-      const directories = files.filter((file: any) => file.is_dir);
+      const directories = files.filter((file) => file.is_dir);
       console.log('Directories found:', directories);
       
-      let allAccounts: any[] = [];
+      let allAccounts: TelegramAccount[] = [];
       const existingById = localStore.getAccountMetaMap(folderPath);
       
       // Check each directory for tdata folders
       for (const dir of directories) {
         try {
-          const subFiles = await readDirectory(dir.path) as any[];
+          const subFiles = await readDirectory(dir.path) as DirectoryEntry[];
           console.log(`Files in ${dir.name}:`, subFiles);
           
           // Look for tdata folder in this directory
-          const tdataFolder = subFiles.find((f: any) => f.is_dir && f.name === 'tdata');
+          const tdataFolder = subFiles.find((f) => f.is_dir && f.name === 'tdata');
           
           if (tdataFolder) {
             // Additional check: verify tdata folder contains Telegram files
             try {
-              const tdataFiles = await readDirectory(tdataFolder.path) as any[];
+              const tdataFiles = await readDirectory(tdataFolder.path) as DirectoryEntry[];
               console.log(`Files in tdata folder of ${dir.name}:`, tdataFiles);
               
               // Check for essential Telegram files in tdata
-              const hasTelegramFiles = tdataFiles.some((f: any) => {
+              const hasTelegramFiles = tdataFiles.some((f) => {
                 const fileName = f.name.toLowerCase();
                 return fileName.includes('user') || 
                        fileName.includes('session') ||
@@ -776,22 +715,21 @@ export default function Telegram() {
                 const accountStatusValue = await determineAccountStatus(tdataFiles, dir.name, dir.path);
                 console.log(`Account ${dir.name} REAL status determined as: ${accountStatusValue}`);
                 const accountId = stableAccountId(`${dir.path}|tdata`);
-                const existing = existingById.get(accountId) as any;
+                const existing = existingById.get(accountId);
                 const nextNotes =
                   typeof existing?.notes === "string" && !isSystemGeneratedNote(existing.notes)
                     ? existing.notes
                     : "";
+                const nextDisplayName = typeof existing?.displayName === "string" ? existing.displayName : "";
                 
                 allAccounts.push({
                   id: accountId,
                   name: dir.name,
+                  displayName: nextDisplayName,
                   status: accountStatusValue,
-                  proxy: '',
                   notes: nextNotes,
                   hashtags: Array.isArray(existing?.hashtags) ? existing.hashtags : [],
                   type: 'tdata',
-                  isFile: false,
-                  isDir: true,
                   size: dir.size,
                   modified: dir.modified,
                   api_id: "", // Add missing fields for TelegramLink compatibility
@@ -815,32 +753,31 @@ export default function Telegram() {
           
           // Only check for session files directly in this directory if it's not a TG folder
           if (!dir.name.toLowerCase().startsWith('tg')) {
-            const sessionFiles = subFiles.filter((f: any) => f.name.endsWith('.session'));
+            const sessionFiles = subFiles.filter((f) => f.name.endsWith('.session'));
             for (const sessionFile of sessionFiles) {
               // For session files, most are blocked since Telegram bans log them out
               // Only very recently modified sessions might still be active
-              const fileAge = Date.now() - new Date(sessionFile.modified).getTime();
+              const fileAge = Date.now() - new Date(sessionFile.modified ?? 0).getTime();
               const daysOld = fileAge / (1000 * 60 * 60 * 24);
               const accountStatusValue = daysOld < 1 ? accountStatus.active : accountStatus.blocked; // Only active if modified today
               const accountId = stableAccountId(`${sessionFile.path}|session`);
-                const existing = existingById.get(accountId) as any;
+                const existing = existingById.get(accountId);
                 const nextNotes =
                   typeof existing?.notes === "string" && !isSystemGeneratedNote(existing.notes)
                     ? existing.notes
                     : "";
+                const nextDisplayName = typeof existing?.displayName === "string" ? existing.displayName : "";
               
               console.log(`Session account ${sessionFile.name.replace('.session', '')}: ${daysOld.toFixed(1)} days old -> ${accountStatus}`);
               
               allAccounts.push({
                 id: accountId,
                 name: sessionFile.name.replace('.session', ''),
+                displayName: nextDisplayName,
                 status: accountStatusValue,
-                proxy: '',
                 notes: nextNotes,
                 hashtags: Array.isArray(existing?.hashtags) ? existing.hashtags : [],
                 type: 'session',
-                isFile: true,
-                isDir: false,
                 size: sessionFile.size,
                 modified: sessionFile.modified,
                 api_id: "", 
@@ -860,31 +797,30 @@ export default function Telegram() {
       }
       
       // Also check for session files in the root folder
-      const rootSessionFiles = files.filter((file: any) => file.name.endsWith('.session'));
+      const rootSessionFiles = files.filter((file) => file.name.endsWith('.session'));
       for (const sessionFile of rootSessionFiles) {
         // For session files, most are blocked since Telegram bans log them out
-        const fileAge = Date.now() - new Date(sessionFile.modified).getTime();
+        const fileAge = Date.now() - new Date(sessionFile.modified ?? 0).getTime();
         const daysOld = fileAge / (1000 * 60 * 60 * 24);
         const accountStatusValue = daysOld < 1 ? accountStatus.active : accountStatus.blocked; // Only active if modified today
         const accountId = stableAccountId(`${sessionFile.path}|root-session`);
-        const existing = existingById.get(accountId) as any;
+        const existing = existingById.get(accountId);
         const nextNotes =
           typeof existing?.notes === "string" && !isSystemGeneratedNote(existing.notes)
             ? existing.notes
             : "";
+        const nextDisplayName = typeof existing?.displayName === "string" ? existing.displayName : "";
         
         console.log(`Root session account ${sessionFile.name.replace('.session', '')}: ${daysOld.toFixed(1)} days old -> ${accountStatus}`);
         
         allAccounts.push({
           id: accountId,
           name: sessionFile.name.replace('.session', ''),
+          displayName: nextDisplayName,
           status: accountStatusValue,
-          proxy: '',
           notes: nextNotes,
           hashtags: Array.isArray(existing?.hashtags) ? existing.hashtags : [],
           type: 'session',
-          isFile: true,
-          isDir: false,
           size: sessionFile.size,
           modified: sessionFile.modified,
           api_id: "", // Add missing fields for TelegramLink compatibility
@@ -901,7 +837,7 @@ export default function Telegram() {
       
       if (allAccounts.length === 0) {
         // Show detailed error with file list
-        const fileList = files.map((f: any) => `${f.name} (${f.is_dir ? 'dir' : 'file'})`).join(', ');
+        const fileList = files.map((f) => `${f.name} (${f.is_dir ? 'dir' : 'file'})`).join(', ');
         console.log('No Telegram files found. Available files:', fileList);
         
         toast({
@@ -959,7 +895,7 @@ export default function Telegram() {
   const loadDefaultAccounts = () => {
     console.log('Loading default accounts...');
     // Return empty array when no folder path is specified
-    const defaultAccounts: any[] = [];
+    const defaultAccounts: TelegramAccount[] = [];
     console.log('Setting empty accounts list (no folder path specified)');
     setAccounts(defaultAccounts);
     localStore.saveAccounts(defaultAccounts);
@@ -969,6 +905,7 @@ export default function Telegram() {
   // Function to update account notes
   const updateAccountNotes = async (accountId: number, notes: string) => {
     try {
+      const accountName = accounts.find((acc) => acc.id === accountId)?.name ?? String(accountId);
       // Update local state immediately for better UX
       setAccounts(prevAccounts => 
         prevAccounts.map(acc => 
@@ -980,8 +917,8 @@ export default function Telegram() {
       logAction(`Оновлено нотатку для акаунта ${accountId}`);
 
       toast({
-        title: "Нотатку збережено",
-        description: `Нотатку для акаунта ${accountId} оновлено`,
+        title: "Нотатку оновлено",
+        description: `Акаунт ${accountName}`,
       });
     } catch (error) {
       toast({
@@ -992,7 +929,32 @@ export default function Telegram() {
     }
   };
 
-  const extractProfileId = (account: any): number | null => {
+  const updateAccountDisplayName = async (accountId: number, displayName: string) => {
+    try {
+      const accountName = accounts.find((acc) => acc.id === accountId)?.name ?? String(accountId);
+      setAccounts(prevAccounts =>
+        prevAccounts.map(acc =>
+          acc.id === accountId ? { ...acc, displayName } : acc
+        )
+      );
+      const scopeKey = localStore.getSettings().telegramFolderPath || "";
+      localStore.updateAccountDisplayName(accountId, displayName, scopeKey);
+      logAction(`Оновлено назву акаунта ${accountId}`);
+
+      toast({
+        title: "Назву оновлено",
+        description: `Акаунт ${accountName}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Помилка збереження",
+        description: "Не вдалося оновити назву",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const extractProfileId = (account: TelegramAccount): number | null => {
     const name = String(account?.name || "");
     const notes = String(account?.notes || "");
     const combined = `${name} ${notes}`;
@@ -1023,7 +985,7 @@ export default function Telegram() {
   const handleAddHashtag = (accountId: number, rawTag: string) => {
     const tag = normalizeHashtag(rawTag);
     if (!tag) return;
-    const account = accounts.find((a: any) => a.id === accountId);
+    const account = accounts.find((a) => a.id === accountId);
     if (!account) return;
     const next = Array.from(new Set([...getAccountHashtags(account), tag]));
     saveAccountHashtags(accountId, next);
@@ -1031,7 +993,7 @@ export default function Telegram() {
   };
 
   const handleRemoveHashtag = (accountId: number, tagToRemove: string) => {
-    const account = accounts.find((a: any) => a.id === accountId);
+    const account = accounts.find((a) => a.id === accountId);
     if (!account) return;
     const next = getAccountHashtags(account).filter((tag) => tag !== tagToRemove);
     saveAccountHashtags(accountId, next);
@@ -1056,7 +1018,7 @@ export default function Telegram() {
     closeHashtagModal();
   };
 
-  const hashtagModalAccount = accounts.find((a: any) => a.id === hashtagModalAccountId) ?? null;
+  const hashtagModalAccount = accounts.find((a) => a.id === hashtagModalAccountId) ?? null;
 
   useEffect(() => {
     setHashtagMeta(localStore.getHashtagMeta());
@@ -1179,7 +1141,7 @@ export default function Telegram() {
 
   // Function to toggle account open/close
   const handleToggleAccount = async (accountId: number) => {
-    const account = accounts.find((a: any) => a.id === accountId);
+    const account = accounts.find((a) => a.id === accountId);
     if (!account) return;
 
     const settings = localStore.getSettings();
@@ -1247,7 +1209,7 @@ export default function Telegram() {
 
   const hashtagOptions = useMemo(
     () =>
-      Array.from(new Set(accountsWithMeta.flatMap((account: any) => account.hashtags || []))).sort((a, b) =>
+      Array.from(new Set(accountsWithMeta.flatMap((account) => account.hashtags || []))).sort((a, b) =>
         String(a).localeCompare(String(b), "uk", { sensitivity: "base", numeric: true })
       ),
     [accountsWithMeta]
@@ -1270,7 +1232,7 @@ export default function Telegram() {
         hashtagFilter === "all" || (account.hashtags as string[]).includes(hashtagFilter);
       return byStatus && byHashtag;
     })
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       const aProfile = extractProfileId(a);
       const bProfile = extractProfileId(b);
 
@@ -1288,8 +1250,9 @@ export default function Telegram() {
   const visibleAccounts = filteredAccounts.filter((account) => {
     if (notesFilter === "with" && !hasUserNotes(account)) return false;
     if (!normalizedAccountSearch) return true;
-    const notesText = normalizeText(account?.notes);
-    return notesText.includes(normalizedAccountSearch);
+    const combined = `${account?.displayName ?? ""} ${account?.name ?? ""} ${account?.notes ?? ""}`;
+    const searchText = normalizeText(combined);
+    return searchText.includes(normalizedAccountSearch);
   });
   const allProfileIds = useMemo(() => getAllProfileIds(), [accounts]);
   const filteredProfileIds = useMemo(
@@ -1336,9 +1299,10 @@ export default function Telegram() {
       return;
     }
 
-    let launchParams: TelegramLink;
+    let launchParams: TelegramLaunchParams;
     try {
-      launchParams = parseTelegramLinkFromUrl(selectedHashtagMeta.link);
+      const parsed = parseTelegramLinkFromUrl(selectedHashtagMeta.link);
+      launchParams = toLaunchParams(parsed, `#${hashtagFilter}`, isMix ? "yes" : "no");
     } catch (error) {
       toast({
         title: "Помилка",
@@ -1358,7 +1322,7 @@ export default function Telegram() {
     setEndRange(String(maxProfile));
 
     try {
-      const size = getTelegramBatchSize();
+      const size = readTelegramBatchSize();
       const firstBatch = filteredProfileIds.slice(0, size);
       const remaining = filteredProfileIds.slice(size);
 
@@ -1368,6 +1332,7 @@ export default function Telegram() {
       setTotalProfiles(filteredProfileIds.length);
       setLaunchProgressCount(0);
       batchBaseCountRef.current = 0;
+      lastBatchProfileIdsRef.current = firstBatch;
 
       const pids = await launchAccountsForProfiles(
         launchParams,
@@ -1468,7 +1433,7 @@ export default function Telegram() {
 
     try {
       let projectName = "";
-      let linkParams: TelegramLink | null = null;
+      let linkParams: ProjectData | TelegramLink | null = null;
 
       if (selectedProject === "custom") {
         if (!customLink) {
@@ -1487,7 +1452,7 @@ export default function Telegram() {
       lastLaunchProjectRef.current = projectName;
 
       // Handle custom link differently
-      let launchParams;
+      let launchParams: TelegramLaunchParams;
       console.log('Debug - projectName:', projectName);
       console.log('Debug - linkParams:', linkParams);
       console.log('Debug - availableLinks:', availableLinks);
@@ -1497,15 +1462,7 @@ export default function Telegram() {
       }
 
       // Always use the parsed app_name and app_type from linkParams
-      launchParams = {
-        api_id: linkParams.api_id || "",
-        api_hash: linkParams.api_hash || "",
-        phone: linkParams.phone || "",
-        app_name: linkParams.app_name || projectName, // Use app_name from stored data or fallback to project name
-        app_type: linkParams.app_type || "", // Use app_type from stored data
-        ref_link: linkParams.ref_link || "",
-        mixed: isMix ? "yes" : "no"
-      };
+      launchParams = toLaunchParams(linkParams, projectName, isMix ? "yes" : "no");
       console.log('Debug - launchParams:', launchParams);
       
       console.log('Launching batch:', {
@@ -1516,7 +1473,7 @@ export default function Telegram() {
         telegramFolderPath: settings.telegramFolderPath
       });
 
-      const size = getTelegramBatchSize();
+      const size = readTelegramBatchSize();
       const allProfiles = buildProfileList(start, end, isMix);
       const firstBatch = allProfiles.slice(0, size);
       const remaining = allProfiles.slice(size);
@@ -1527,6 +1484,7 @@ export default function Telegram() {
       setTotalProfiles(allProfiles.length);
       setLaunchProgressCount(0);
       batchBaseCountRef.current = 0;
+      lastBatchProfileIdsRef.current = firstBatch;
 
       const pids = await launchAccountsForProfiles(
         launchParams,
@@ -1626,7 +1584,7 @@ export default function Telegram() {
     setLaunchMode("plain");
 
     try {
-      const size = getTelegramBatchSize();
+      const size = readTelegramBatchSize();
       const firstBatch = allProfiles.slice(0, size);
       const remaining = allProfiles.slice(size);
 
@@ -1636,6 +1594,7 @@ export default function Telegram() {
       setTotalProfiles(allProfiles.length);
       setLaunchProgressCount(0);
       batchBaseCountRef.current = 0;
+      lastBatchProfileIdsRef.current = firstBatch;
 
       const pids = await launchPlainProfiles(firstBatch, 0, settings.telegramFolderPath);
 
@@ -1732,8 +1691,22 @@ export default function Telegram() {
     setIsModalOpen(true);
   };
 
+  const toLaunchParams = (
+    source: ProjectData | TelegramLink | TelegramLaunchParams,
+    fallbackName: string,
+    mixed: "yes" | "no"
+  ): TelegramLaunchParams => ({
+    api_id: "api_id" in source && typeof source.api_id === "string" ? source.api_id : "",
+    api_hash: "api_hash" in source && typeof source.api_hash === "string" ? source.api_hash : "",
+    phone: "phone" in source && typeof source.phone === "string" ? source.phone : "",
+    app_name: source.app_name || fallbackName,
+    app_type: source.app_type || "",
+    ref_link: source.ref_link || "",
+    mixed,
+  });
+
   // Function to edit a project
-  const handleEditProject = (projectName: string, projectData: any) => {
+  const handleEditProject = (projectName: string, projectData: ProjectData) => {
     setIsProjectSelectOpen(false);
     setModalMode('edit');
     // Pass the actual project data for editing
@@ -1775,7 +1748,7 @@ export default function Telegram() {
   };
 
   // Function to save project (from modal)
-  const handleSaveProject = (project: any) => {
+  const handleSaveProject = (project: { name: string; ref_link: string }) => {
     console.log('handleSaveProject called with:', project);
     
     // Parse ref_link to extract app_name and app_type like custom links
@@ -1808,7 +1781,7 @@ export default function Telegram() {
     console.log('Parsed app_name:', app_name, 'app_type:', app_type);
     
     // Create simplified project data that matches Python script requirements
-    const fullProject = {
+    const fullProject: ProjectData = {
       name: project.name,
       ref_link: project.ref_link || "",
       app_name: app_name,
@@ -1870,11 +1843,18 @@ export default function Telegram() {
       if (launchedPids.length > 0) {
         const closingPids = [...launchedPids];
         await closeTelegramProcesses(closingPids);
+        if (lastBatchProfileIdsRef.current.length > 0) {
+          try {
+            await closeTelegramAccountsBatch(lastBatchProfileIdsRef.current);
+          } catch (error) {
+            console.warn("Failed to close batch accounts:", error);
+          }
+        }
         try {
-          const running = await getRunningTelegramProcesses() as any[];
+          const running = await getRunningTelegramProcesses() as TelegramProcess[];
           const runningSet = new Set<number>(
             running
-              .map((p: any) => Number(p?.pid))
+              .map((p) => Number(p?.pid))
               .filter((pid: number) => Number.isFinite(pid))
           );
           const stillRunning = closingPids.filter((pid) => runningSet.has(pid));
@@ -1897,9 +1877,10 @@ export default function Telegram() {
         setLaunchMode(null);
         setBatchSize(1);
         setTotalProfiles(0);
-      setLaunchProgressCount(0);
+        setLaunchProgressCount(0);
         setLaunchProgressCount(0);
         localStore.clearTelegramLaunchState();
+        lastBatchProfileIdsRef.current = [];
 
         // Reset all form fields to initial state
         setSelectedProject("");
@@ -1929,7 +1910,7 @@ export default function Telegram() {
         return;
       }
 
-      const size = batchSize > 0 ? batchSize : getTelegramBatchSize();
+      const size = batchSize > 0 ? batchSize : readTelegramBatchSize();
       const baseCount = totalProfiles > 0 ? Math.max(0, totalProfiles - pendingProfiles.length) : launchProgressCount;
       batchBaseCountRef.current = baseCount;
       setLaunchProgressCount(baseCount);
@@ -1944,6 +1925,7 @@ export default function Telegram() {
         setTotalProfiles(0);
         setLaunchProgressCount(0);
         localStore.clearTelegramLaunchState();
+        lastBatchProfileIdsRef.current = [];
         toast({
           title: "Пакет завершено",
           description: "Усі запущені Telegram процеси закрито",
@@ -1959,15 +1941,7 @@ export default function Telegram() {
         if (!params && selectedProject) {
           if (selectedProject === "custom") {
             if (customLink) {
-              params = {
-                api_id: customLink.api_id || "",
-                api_hash: customLink.api_hash || "",
-                phone: customLink.phone || "",
-                app_name: customLink.app_name || "custom",
-                app_type: customLink.app_type || "",
-                ref_link: customLink.ref_link || "",
-                mixed: isMix ? "yes" : "no",
-              };
+              params = toLaunchParams(customLink, "custom", isMix ? "yes" : "no");
               setLaunchParams(params);
               setLaunchMode("project");
             }
@@ -1975,15 +1949,7 @@ export default function Telegram() {
             const selectedLink = availableLinks.find(([name]) => name === selectedProject);
             if (selectedLink) {
               const [projectName, linkParams] = selectedLink;
-              params = {
-                api_id: linkParams.api_id || "",
-                api_hash: linkParams.api_hash || "",
-                phone: linkParams.phone || "",
-                app_name: linkParams.app_name || projectName,
-                app_type: linkParams.app_type || "",
-                ref_link: linkParams.ref_link || "",
-                mixed: isMix ? "yes" : "no",
-              };
+              params = toLaunchParams(linkParams, projectName, isMix ? "yes" : "no");
               setLaunchParams(params);
               setLaunchMode("project");
             }
@@ -2016,6 +1982,7 @@ export default function Telegram() {
       setLaunchedPids(pids);
       setPendingProfiles(remaining);
       setLaunchProgressCount((prev) => Math.max(prev, baseCount + pids.length));
+      lastBatchProfileIdsRef.current = nextBatch;
 
       toast({
         title: "Продовження запуску",
@@ -2040,6 +2007,10 @@ export default function Telegram() {
       ...Array.from(openAccounts.values()),
       ...launchedPids,
     ]));
+    const accountIds = Array.from(new Set([
+      ...Array.from(openAccounts.keys()),
+      ...lastBatchProfileIdsRef.current,
+    ]));
     const activeProjectName = lastLaunchProjectRef.current || launchParams?.app_name || selectedProject || "";
 
     const hasAnyToReset =
@@ -2060,6 +2031,13 @@ export default function Telegram() {
       if (pids.length > 0) {
         await closeTelegramProcesses(pids);
       }
+      if (accountIds.length > 0) {
+        try {
+          await closeTelegramAccountsBatch(accountIds);
+        } catch (error) {
+          console.warn("Failed to close accounts batch:", error);
+        }
+      }
       setOpenAccounts(new Map());
       setLaunchedPids([]);
       setPendingProfiles([]);
@@ -2072,6 +2050,7 @@ export default function Telegram() {
       setTotalProfiles(0);
       setLaunchProgressCount(0);
       setIsLaunching(false);
+      lastBatchProfileIdsRef.current = [];
       localStore.clearTelegramLaunchState();
       await loadRealStats();
 
@@ -2363,7 +2342,7 @@ export default function Telegram() {
                             onClick={handleCloseAllOpenedAccounts}
                             className="h-10 min-w-[120px] rounded-xl border border-white/10 text-white/80 hover:text-white hover:bg-white/10 focus-visible:ring-0"
                           >
-                            Скасувати
+                            Завершити
                           </Button>
                         ) : null}
                       </div>
@@ -2405,7 +2384,7 @@ export default function Telegram() {
                   ) : (
                     <ScrollArea className="flex-1 min-h-0">
                       <div className="space-y-2">
-                        {recentActions.slice(0, 24).map((entry: any) => {
+                        {recentActions.slice(0, 24).map((entry: { id: number; message: string; timestamp: number }) => {
                           const message = String(entry?.message ?? "").trim().replace(/\.$/, "");
                           return (
                           <div
@@ -2503,14 +2482,22 @@ export default function Telegram() {
               <h3 className="text-2xl font-display font-bold text-white">
                 Список акаунтів
               </h3>
-              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                  <Search
+                    className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40 transition-opacity ${
+                      isSearchFocused ? "opacity-0" : "opacity-100"
+                    }`}
+                  />
                   <Input
                     value={accountSearch}
                     onChange={(e) => setAccountSearch(e.target.value)}
-                    placeholder="Пошук у нотатках.."
-                    className="h-9 w-60 bg-black/40 border-white/10 pl-9 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20"
+                    onFocus={() => setIsSearchFocused(true)}
+                    onBlur={() => setIsSearchFocused(false)}
+                    placeholder="Пошук"
+                    className={`h-9 w-60 bg-black/40 border-white/10 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20 ${
+                      isSearchFocused ? "pl-3" : "pl-9"
+                    }`}
                   />
                   <Select
                     value={notesFilter === "with" ? notesFilterValue : hashtagFilter}
@@ -2652,6 +2639,8 @@ export default function Telegram() {
                   visibleAccounts.map((account, index) => {
                     const statusLabel =
                       accountStatusLabels[account.effectiveStatus as AccountStatus] ?? account.effectiveStatus;
+                    const displayName = String(account.displayName ?? "").trim();
+                    const hasDisplayName = displayName.length > 0;
                     return (
                     <motion.div
                       key={account.id}
@@ -2666,38 +2655,124 @@ export default function Telegram() {
                     >
                       {account.effectiveStatus === accountStatus.active && (
                         <span
-                          className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                          className="absolute right-8 top-3 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
                           title="Активний"
                         />
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openHashtagModal(account.id);
+                        }}
+                        className={`absolute ${hasDisplayName ? "right-9" : "right-3"} top-2.5 h-5 w-5 rounded-md flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity`}
+                        title="Додати хештег"
+                      >
+                        #
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!hasDisplayName) return;
+                          if (navigator.clipboard?.writeText) {
+                            navigator.clipboard.writeText(displayName);
+                          }
+                        }}
+                        className={`absolute right-3 top-2.5 h-5 w-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 opacity-0 pointer-events-none transition-opacity ${
+                          hasDisplayName ? "group-hover:opacity-100 group-hover:pointer-events-auto" : ""
+                        }`}
+                        title={hasDisplayName ? "Копіювати назву" : ""}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
                       <div className="flex flex-col space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 min-w-0">
-                              <h4 className="font-semibold text-white truncate">{account.name || account.id}</h4>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6 rounded-md text-xs font-bold shrink-0 text-white/40 hover:text-white/80 hover:bg-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-                                onClick={() => openHashtagModal(account.id)}
-                                title="Додати хештег"
-                              >
-                                #
-                              </Button>
+                              <div className="relative min-w-0">
+                                {editingAccountId === account.id ? (
+                                  <Input
+                                    autoFocus
+                                    value={editingDisplayName}
+                                    onChange={(e) => setEditingDisplayName(e.target.value)}
+                                    onBlur={() => {
+                                      const next = editingDisplayName.trim();
+                                      const current = String(account.displayName ?? "").trim();
+                                      setEditingAccountId(null);
+                                      if (next !== current) {
+                                        updateAccountDisplayName(account.id, next);
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        const next = editingDisplayName.trim();
+                                        const current = String(account.displayName ?? "").trim();
+                                        setEditingAccountId(null);
+                                        if (next !== current) {
+                                          updateAccountDisplayName(account.id, next);
+                                        }
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        setEditingAccountId(null);
+                                        setEditingDisplayName(String(account.displayName ?? ""));
+                                      }
+                                    }}
+                                    placeholder="@user"
+                                    className="h-6 w-40 bg-transparent border-0 px-0 text-[12px] tracking-[0.02em] text-white/90 placeholder:text-white/35 focus:ring-0 focus:outline-none"
+                                  />
+                                ) : (
+                                  <h4 className="font-semibold text-white truncate">
+                                    <button
+                                      type="button"
+                                      className={`inline-flex items-center text-white/80 hover:text-white focus-visible:outline-none ${
+                                        hasDisplayName ? "group-hover:hidden" : ""
+                                      }`}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setEditingAccountId(account.id);
+                                        setEditingDisplayName(String(account.displayName ?? ""));
+                                      }}
+                                      title="Редагувати ім'я"
+                                    >
+                                      {index + 1}
+                                    </button>
+                                    {hasDisplayName ? (
+                                      <button
+                                        type="button"
+                                        className="hidden group-hover:inline-flex items-center text-white/90 hover:text-white focus-visible:outline-none"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          setEditingAccountId(account.id);
+                                          setEditingDisplayName(String(account.displayName ?? ""));
+                                        }}
+                                        title="Редагувати ім'я"
+                                      >
+                                        {displayName}
+                                      </button>
+                                    ) : null}
+                                  </h4>
+                                )}
+                              </div>
                             </div>
                             {Array.isArray(account.hashtags) && account.hashtags.length > 0 ? (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {account.hashtags.map((tag: string) => (
                                   <div
                                     key={`${account.id}-${tag}`}
-                                    className="relative inline-flex items-center justify-center rounded-full bg-primary/20 text-primary pl-2 pr-4 py-0.5 text-[10px] group hover:bg-primary/30 transition-[color,background-color]"
+                                    className="group/hashtag relative inline-flex items-center justify-center rounded-full bg-primary/20 text-primary pl-2 pr-4 py-0.5 text-[10px] hover:bg-primary/30 transition-[color,background-color]"
                                     title={`#${tag}`}
                                   >
                                     <span className="leading-none">#{tag}</span>
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveHashtag(account.id, tag)}
-                                      className="absolute right-1 flex items-center justify-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                      className="absolute right-1 flex items-center justify-center opacity-0 pointer-events-none group-hover/hashtag:opacity-100 group-hover/hashtag:pointer-events-auto transition-opacity"
                                       title={`Видалити #${tag}`}
                                       aria-label={`Видалити #${tag}`}
                                     >
@@ -2710,20 +2785,20 @@ export default function Telegram() {
                               <div className="mt-1 h-5" />
                             )}
                           </div>
-                          <div className="flex items-center gap-1">
-                            {account.effectiveStatus === accountStatus.blocked && (
-                              <span className={`text-xs px-2 py-1 rounded-full ${
-                                'bg-slate-500/20 text-slate-300'
-                              }`}>
-                                {statusLabel}
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex items-center gap-1">
+                          {account.effectiveStatus === accountStatus.blocked && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              'bg-slate-500/20 text-slate-300'
+                            }`}>
+                              {statusLabel}
+                            </span>
+                          )}
                         </div>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Додати нотатку.."
-                            className="bg-black/40 border-white/5 text-white text-xs flex-1 placeholder:text-gray-500"
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Додати нотатку.."
+                          className="bg-black/40 border-white/5 text-white text-xs flex-1 placeholder:text-gray-500"
                             defaultValue={account.notes ?? ""}
                             onBlur={(e) => {
                               if (e.target.value !== (account.notes || "")) {
