@@ -139,7 +139,9 @@ export function useToggleDailyTask() {
       queryClient.setQueryData(["local", "dailyTasks"], (old: any[] | undefined) => {
         return old?.map(task =>
           task.id === id
-            ? { ...task, isCompleted }
+            ? isCompleted
+              ? { ...task, isCompleted, reminders: [], remindAt: null, remindedAt: null, repeatRule: "never" }
+              : { ...task, isCompleted }
             : task
         );
       });

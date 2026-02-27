@@ -45,6 +45,12 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    document.body.style.backgroundColor = "#000000";
+    document.body.style.backgroundImage = "none";
+    document.body.style.background = "#000000";
+  }, []);
+
   const handleTelegramLogin = (username: string) => {
     const normalized = username.trim().replace(/^@+/, "");
     if (!normalized) return;
@@ -73,7 +79,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider>
-          <div className="relative flex h-screen w-full overflow-hidden bg-black">
+          <div className="relative flex h-screen w-full overflow-hidden">
             <ThemeEffects />
             <div className="relative z-10 flex h-full w-full">
               <Sidebar user={authUser} onTelegramLogin={handleTelegramLogin} onLogout={handleLogout} />

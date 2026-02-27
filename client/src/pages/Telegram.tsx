@@ -27,6 +27,7 @@ import {
   getAvailableLinks,
   closeTelegramProcesses,
   closeTelegramAccountsBatch,
+  getTelegramPidsForAccounts,
   closeSingleAccount,
   getRunningTelegramProcesses,
   getAccountStats,
@@ -903,7 +904,7 @@ export default function Telegram() {
   };
 
   // Function to update account notes
-  const updateAccountNotes = async (accountId: number, notes: string) => {
+  const updateAccountNotes = async (accountId: number, notes: string, cardNumber?: number) => {
     try {
       const accountName = accounts.find((acc) => acc.id === accountId)?.name ?? String(accountId);
       // Update local state immediately for better UX
@@ -914,11 +915,11 @@ export default function Telegram() {
       );
       const scopeKey = localStore.getSettings().telegramFolderPath || "";
       localStore.updateAccountNotes(accountId, notes, scopeKey);
-      logAction(`Оновлено нотатку для акаунта ${accountId}`);
+      const cardLabel = Number.isFinite(cardNumber) ? Number(cardNumber) : accountId;
 
       toast({
         title: "Нотатку оновлено",
-        description: `Акаунт ${accountName}`,
+        description: `Акаунт ${cardLabel}`,
       });
     } catch (error) {
       toast({
@@ -929,9 +930,9 @@ export default function Telegram() {
     }
   };
 
-  const updateAccountDisplayName = async (accountId: number, displayName: string) => {
+  const updateAccountDisplayName = async (accountId: number, displayName: string, cardNumber?: number) => {
     try {
-      const accountName = accounts.find((acc) => acc.id === accountId)?.name ?? String(accountId);
+      const cardLabel = Number.isFinite(cardNumber) ? Number(cardNumber) : accountId;
       setAccounts(prevAccounts =>
         prevAccounts.map(acc =>
           acc.id === accountId ? { ...acc, displayName } : acc
@@ -939,11 +940,10 @@ export default function Telegram() {
       );
       const scopeKey = localStore.getSettings().telegramFolderPath || "";
       localStore.updateAccountDisplayName(accountId, displayName, scopeKey);
-      logAction(`Оновлено назву акаунта ${accountId}`);
 
       toast({
         title: "Назву оновлено",
-        description: `Акаунт ${accountName}`,
+        description: `Акаунт ${cardLabel}`,
       });
     } catch (error) {
       toast({
@@ -1175,7 +1175,6 @@ export default function Telegram() {
           next.delete(accountId);
           return next;
         });
-        logAction(`Закрито акаунт ${account.name || accountId}`);
       } else {
         const pid = await launchSingleAccount(profileId, folderPath) as number;
         setOpenAccounts((prev) => {
@@ -1183,7 +1182,6 @@ export default function Telegram() {
           next.set(accountId, pid);
           return next;
         });
-        logAction(`Відкрито акаунт ${account.name || accountId}`);
       }
 
       await loadRealStats();
@@ -1340,7 +1338,16 @@ export default function Telegram() {
         settings.telegramFolderPath
       ) as number[];
 
-      setLaunchedPids(pids);
+      let effectivePids = pids;
+      try {
+        const actualPids = await getTelegramPidsForAccounts(firstBatch);
+        if (actualPids.length > 0) {
+          effectivePids = actualPids;
+        }
+      } catch (error) {
+        console.warn("Failed to resolve actual Telegram PIDs:", error);
+      }
+      setLaunchedPids(effectivePids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
 
       toast({
@@ -1499,7 +1506,16 @@ export default function Telegram() {
         return;
       }
       
-      setLaunchedPids(pids);
+      let effectivePids = pids;
+      try {
+        const actualPids = await getTelegramPidsForAccounts(firstBatch);
+        if (actualPids.length > 0) {
+          effectivePids = actualPids;
+        }
+      } catch (error) {
+        console.warn("Failed to resolve actual Telegram PIDs:", error);
+      }
+      setLaunchedPids(effectivePids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
       logAction(`Запущено ${projectName}`);
       
@@ -1598,7 +1614,16 @@ export default function Telegram() {
 
       const pids = await launchPlainProfiles(firstBatch, 0, settings.telegramFolderPath);
 
-      setLaunchedPids(pids);
+      let effectivePids = pids;
+      try {
+        const actualPids = await getTelegramPidsForAccounts(firstBatch);
+        if (actualPids.length > 0) {
+          effectivePids = actualPids;
+        }
+      } catch (error) {
+        console.warn("Failed to resolve actual Telegram PIDs:", error);
+      }
+      setLaunchedPids(effectivePids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
       logAction(`Запущено ${pids.length} акаунтів (усі)`);
 
@@ -1668,7 +1693,7 @@ export default function Telegram() {
           startInput.select();
         }
       }, 160);
-      logAction(`Додано кастомне посилання ${customProject.app_name || "custom"}`);
+      logAction(`Запущено своє посилання ${customProject.app_name || "custom"}`);
       
       toast({
         title: "Кастомне посилання додано",
@@ -1979,7 +2004,16 @@ export default function Telegram() {
         return;
       }
 
-      setLaunchedPids(pids);
+      let effectivePids = pids;
+      try {
+        const actualPids = await getTelegramPidsForAccounts(nextBatch);
+        if (actualPids.length > 0) {
+          effectivePids = actualPids;
+        }
+      } catch (error) {
+        console.warn("Failed to resolve actual Telegram PIDs:", error);
+      }
+      setLaunchedPids(effectivePids);
       setPendingProfiles(remaining);
       setLaunchProgressCount((prev) => Math.max(prev, baseCount + pids.length));
       lastBatchProfileIdsRef.current = nextBatch;
@@ -1988,7 +2022,6 @@ export default function Telegram() {
         title: "Продовження запуску",
         description: `Запущено ${pids.length} акаунтів. Залишилось ${remaining.length}.`,
       });
-      logAction(`Продовжено запуск: ${pids.length} акаунтів, залишилось ${remaining.length}`);
     } catch (error) {
       console.error('Error closing processes:', error);
       toast({
@@ -2108,10 +2141,7 @@ export default function Telegram() {
   }, [isBatchActive, openAccounts, launchMode]);
 
   return (
-    <div 
-      className="h-full min-h-0 bg-black text-white flex flex-col overflow-hidden" 
-      style={{ backgroundColor: '#000000' }}
-    >
+    <div className="h-full min-h-0 bg-transparent text-white flex flex-col overflow-hidden">
       {/* Ambient background effects - removed for pure black background */}
       {/* <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-0 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
@@ -2703,7 +2733,7 @@ export default function Telegram() {
                                       const current = String(account.displayName ?? "").trim();
                                       setEditingAccountId(null);
                                       if (next !== current) {
-                                        updateAccountDisplayName(account.id, next);
+                                        updateAccountDisplayName(account.id, next, index + 1);
                                       }
                                     }}
                                     onKeyDown={(e) => {
@@ -2713,7 +2743,7 @@ export default function Telegram() {
                                         const current = String(account.displayName ?? "").trim();
                                         setEditingAccountId(null);
                                         if (next !== current) {
-                                          updateAccountDisplayName(account.id, next);
+                                          updateAccountDisplayName(account.id, next, index + 1);
                                         }
                                       } else if (e.key === "Escape") {
                                         e.preventDefault();
@@ -2802,7 +2832,7 @@ export default function Telegram() {
                             defaultValue={account.notes ?? ""}
                             onBlur={(e) => {
                               if (e.target.value !== (account.notes || "")) {
-                                updateAccountNotes(account.id, e.target.value);
+                                updateAccountNotes(account.id, e.target.value, index + 1);
                               }
                             }}
                           />

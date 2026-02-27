@@ -74,8 +74,11 @@ export type LocalSettings = {
   telegramFolderPath: string;
   chromeThreads: string;
   chromeFolderPath: string;
-  themeEffect?: "none" | "winter" | "autumn" | "spring" | "summer";
+  themeEffect?: "none" | "sakura" | "rain" | "leaves" | "snow";
   themeSnowSpeed?: number;
+  themeSakuraIntensity?: number;
+  themeRainIntensity?: number;
+  themeLeavesIntensity?: number;
 };
 
 export type LocalUser = {
@@ -130,6 +133,9 @@ const DEFAULT_SETTINGS: LocalSettings = {
   chromeFolderPath: "",
   themeEffect: "none",
   themeSnowSpeed: 1,
+  themeSakuraIntensity: 1,
+  themeRainIntensity: 1,
+  themeLeavesIntensity: 1,
 };
 const LOG_RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -481,7 +487,18 @@ export const localStore = {
     const tasks = this.getDailyTasks();
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
-    tasks[index] = { ...tasks[index], isCompleted };
+    if (isCompleted) {
+      tasks[index] = {
+        ...tasks[index],
+        isCompleted,
+        reminders: [],
+        remindAt: null,
+        remindedAt: null,
+        repeatRule: "never",
+      };
+    } else {
+      tasks[index] = { ...tasks[index], isCompleted };
+    }
     this.saveDailyTasks(tasks);
     return tasks[index];
   },

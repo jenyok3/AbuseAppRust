@@ -14,10 +14,7 @@ export default function Chrome() {
   }, []);
 
   return (
-    <div
-      className="min-h-screen bg-black text-white flex items-center justify-center"
-      style={{ backgroundColor: "#000000" }}
-    >
+    <div className="min-h-screen bg-transparent text-white flex items-center justify-center">
       <div className="text-center">
         <h1 className="text-4xl font-bold text-white/80 mb-4">В розробці</h1>
         <p className="text-white/60">Сторінка знаходиться в процесі розробки</p>

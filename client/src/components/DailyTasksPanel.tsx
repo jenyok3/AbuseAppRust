@@ -233,6 +233,9 @@ export function DailyTasksPanel() {
     !!editingTaskReminderMinute.trim();
   const isReminderInvalid = reminderInputsFilled && !parsedReminder.isValid;
   const canSaveTaskEdit = !!editingTaskTitle.trim() && parsedReminder.isValid;
+  const plannedReminders = editingTaskReminders.filter(
+    (reminder) => !reminder.remindedAt && reminder.remindAt > Date.now()
+  );
   const isEmptyState = !isLoading && (tasks?.length ?? 0) === 0;
 
   const openEditTaskModal = (task: { id: number; title: string; reminders?: LocalDailyReminder[] }) => {
@@ -603,10 +606,10 @@ export function DailyTasksPanel() {
                       </Select>
                     </div>
 
-                    {editingTaskReminders.length > 0 ? (
+                    {plannedReminders.length > 0 ? (
                       <div className="pt-2 space-y-2">
                         <p className="text-sm font-normal text-muted-foreground text-center">Заплановано</p>
-                        {editingTaskReminders
+                        {plannedReminders
                           .slice()
                           .sort((a, b) => a.remindAt - b.remindAt)
                           .map((reminder) => (

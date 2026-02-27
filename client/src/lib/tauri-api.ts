@@ -94,6 +94,10 @@ export const closeTelegramAccountsBatch = async (accountIds: number[]) => {
   return await invoke("close_telegram_accounts_batch", { accountIds });
 };
 
+export const getTelegramPidsForAccounts = async (accountIds: number[]) => {
+  return await invoke<number[]>("get_telegram_pids_for_accounts", { accountIds });
+};
+
 export const closeSingleAccount = async (accountId: number) => {
   return await invoke("close_single_account", { accountId });
 };

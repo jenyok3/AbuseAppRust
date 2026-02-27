@@ -162,6 +162,46 @@ fn normalize_path_for_match(value: &str) -> String {
     value.to_lowercase().replace('\\', "/").trim_end_matches('/').to_string()
 }
 
+fn build_account_dirs(account_ids: &[i32], root_raw: &str, root_norm: &str) -> Vec<String> {
+    account_ids
+        .iter()
+        .filter_map(|account_id| {
+            let dir = normalize_path_for_match(
+                &Path::new(root_raw)
+                    .join(format!("TG {}", account_id))
+                    .to_string_lossy(),
+            );
+            if dir.is_empty() || !dir.starts_with(root_norm) {
+                None
+            } else {
+                Some(dir)
+            }
+        })
+        .collect()
+}
+
+fn get_pids_for_account_dirs(account_dirs: &[String]) -> Vec<u32> {
+    if account_dirs.is_empty() {
+        return Vec::new();
+    }
+
+    let processes = list_running_telegram_processes();
+    let mut target_pids: Vec<u32> = Vec::new();
+    let mut seen: HashSet<u32> = HashSet::new();
+
+    for (pid, _name, path) in processes {
+        if !seen.insert(pid) {
+            continue;
+        }
+        let path_norm = normalize_path_for_match(&path);
+        if account_dirs.iter().any(|dir| path_norm == *dir || path_norm.starts_with(&(dir.clone() + "/"))) {
+            target_pids.push(pid);
+        }
+    }
+
+    target_pids
+}
+
 pub fn run() {
   let is_autostart = std::env::args().any(|arg| arg == "--autostart");
 
@@ -265,6 +305,7 @@ pub fn run() {
       open_directory_dialog,
       close_telegram_processes,
       close_telegram_accounts_batch,
+      get_telegram_pids_for_accounts,
       close_single_account,
       get_running_telegram_processes,
       send_reminder_notification
@@ -1097,98 +1138,106 @@ async fn close_telegram_accounts_batch(account_ids: Vec<i32>) -> Result<String, 
     }
     let root = normalize_path_for_match(&root_raw);
 
-    let account_dirs: Vec<String> = account_ids
-        .into_iter()
-        .map(|account_id| {
-            normalize_path_for_match(
-                &Path::new(&root_raw)
-                    .join(format!("TG {}", account_id))
-                    .to_string_lossy(),
-            )
-        })
-        .filter(|dir| !dir.is_empty() && dir.starts_with(&root))
-        .collect();
+    let account_dirs = build_account_dirs(&account_ids, &root_raw, &root);
 
     if account_dirs.is_empty() {
         return Ok("Closed 0 processes".to_string());
     }
 
-    let processes = list_running_telegram_processes();
-    let mut target_pids: Vec<u32> = Vec::new();
-    let mut seen: HashSet<u32> = HashSet::new();
+    let mut closed_pids: HashSet<u32> = HashSet::new();
+    let mut attempts = 0;
 
-    for (pid, _name, path) in processes {
-        if !seen.insert(pid) {
-            continue;
+    while attempts < 3 {
+        let target_pids = get_pids_for_account_dirs(&account_dirs);
+        if target_pids.is_empty() {
+            break;
         }
-        let path_norm = normalize_path_for_match(&path);
-        if account_dirs.iter().any(|dir| path_norm == *dir || path_norm.starts_with(&(dir.clone() + "/"))) {
-            target_pids.push(pid);
-        }
-    }
 
-    if target_pids.is_empty() {
-        return Ok("Closed 0 processes".to_string());
-    }
-
-    let mut closed_count = 0;
-
-    for pid in target_pids {
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-            match Command::new("taskkill")
-                .creation_flags(CREATE_NO_WINDOW)
-                .args(["/F", "/PID", &pid.to_string()])
-                .output()
+        for pid in target_pids {
+            #[cfg(target_os = "windows")]
             {
-                Ok(output) => {
-                    if output.status.success() {
-                        closed_count += 1;
-                        println!("Telegram process {} terminated (batch)", pid);
-                    } else {
-                        println!(
-                            "Failed to terminate process {}: {}",
-                            pid,
-                            String::from_utf8_lossy(&output.stderr)
-                        );
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+                match Command::new("taskkill")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .output()
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            if closed_pids.insert(pid) {
+                                println!("Telegram process {} terminated (batch)", pid);
+                            }
+                        } else {
+                            println!(
+                                "Failed to terminate process {}: {}",
+                                pid,
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error terminating process {}: {}", pid, e);
                     }
                 }
-                Err(e) => {
-                    println!("Error terminating process {}: {}", pid, e);
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                match Command::new("kill")
+                    .arg("-9")
+                    .arg(pid.to_string())
+                    .output()
+                {
+                    Ok(output) => {
+                        if output.status.success() {
+                            if closed_pids.insert(pid) {
+                                println!("Telegram process {} terminated (batch)", pid);
+                            }
+                        } else {
+                            println!(
+                                "Failed to terminate process {}: {}",
+                                pid,
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error terminating process {}: {}", pid, e);
+                    }
                 }
             }
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            match Command::new("kill")
-                .arg("-9")
-                .arg(pid.to_string())
-                .output()
-            {
-                Ok(output) => {
-                    if output.status.success() {
-                        closed_count += 1;
-                        println!("Telegram process {} terminated (batch)", pid);
-                    } else {
-                        println!(
-                            "Failed to terminate process {}: {}",
-                            pid,
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("Error terminating process {}: {}", pid, e);
-                }
-            }
+        attempts += 1;
+        if attempts < 3 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
         }
     }
 
-    Ok(format!("Closed {} processes", closed_count))
+    Ok(format!("Closed {} processes", closed_pids.len()))
+}
+
+#[tauri::command]
+async fn get_telegram_pids_for_accounts(account_ids: Vec<i32>) -> Result<Vec<u32>, String> {
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let settings = load_settings_from_disk();
+    let root_raw = settings.telegram_folder_path.trim().to_string();
+    if root_raw.is_empty() {
+        return Err("Telegram folder path is not configured".to_string());
+    }
+    let root = normalize_path_for_match(&root_raw);
+
+    let account_dirs = build_account_dirs(&account_ids, &root_raw, &root);
+    if account_dirs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    Ok(get_pids_for_account_dirs(&account_dirs))
 }
 
 #[tauri::command]
