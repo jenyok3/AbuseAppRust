@@ -1,6 +1,12 @@
 ﻿import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
 import { type AccountStatus } from "@/lib/accountStatus";
+import { getCurrentLanguage } from "@/lib/i18n";
+
+const lt = (uk: string, en: string, ru: string) => {
+  const language = getCurrentLanguage();
+  return language === "en" ? en : language === "ru" ? ru : uk;
+};
 
 // ============================================
 // PROJECTS
@@ -20,7 +26,7 @@ export function useCreateProject() {
       return localStore.addProject(data);
     },
     onSuccess: (created) => {
-      localStore.addLog(`Р”РѕРґР°РЅРѕ РїСЂРѕС”РєС‚ ${created.name}`);
+      localStore.addLog(lt(`Додано проєкт ${created.name}`, `Added project ${created.name}`, `Добавлен проект ${created.name}`));
       queryClient.invalidateQueries({ queryKey: ["local", "projects"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -35,7 +41,7 @@ export function useDeleteProject() {
       if (!ok) throw new Error("Failed to delete project");
     },
     onSuccess: (_, id) => {
-      localStore.addLog(`Р’РёРґР°Р»РµРЅРѕ РїСЂРѕС”РєС‚ #${id}`);
+      localStore.addLog(lt(`Видалено проєкт #${id}`, `Deleted project #${id}`, `Удален проект #${id}`));
       queryClient.invalidateQueries({ queryKey: ["local", "projects"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -75,7 +81,7 @@ export function useUpdateAccountNotes() {
       return updated;
     },
     onSuccess: (_updated, { id }) => {
-      localStore.addLog(`РћРЅРѕРІР»РµРЅРѕ РЅРѕС‚Р°С‚РєСѓ РґР»СЏ Р°РєР°СѓРЅС‚Р° ${id}`);
+      localStore.addLog(lt(`Оновлено нотатку для акаунта ${id}`, `Updated note for account ${id}`, `Обновлена заметка для аккаунта ${id}`));
       queryClient.invalidateQueries({ queryKey: ["local", "accounts"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -91,7 +97,7 @@ export function useUpdateAccountStatus() {
       return updated;
     },
     onSuccess: (_updated, { id, status }) => {
-      localStore.addLog(`Р—РјС–РЅРµРЅРѕ СЃС‚Р°С‚СѓСЃ Р°РєР°СѓРЅС‚Р° ${id} РЅР° ${status}`);
+      localStore.addLog(lt(`Змінено статус акаунта ${id} на ${status}`, `Changed account ${id} status to ${status}`, `Изменен статус аккаунта ${id} на ${status}`));
       queryClient.invalidateQueries({ queryKey: ["local", "accounts"] });
       queryClient.invalidateQueries({ queryKey: ["local", "stats"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
@@ -117,7 +123,7 @@ export function useCreateDailyTask() {
       return localStore.addDailyTask(data.title, data.remindAt);
     },
     onSuccess: (created) => {
-      localStore.addLog(`Додано щоденне завдання: ${created.title}`);
+      localStore.addLog(lt(`Додано щоденне завдання: ${created.title}`, `Added daily task: ${created.title}`, `Добавлена ежедневная задача: ${created.title}`));
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -171,7 +177,7 @@ export function useDeleteDailyTask() {
     },
     onSuccess: (_result, _id, context) => {
       const title = typeof context?.title === "string" ? context.title : null;
-      const label = title ? `Видалено щоденне завдання: ${title}` : "Видалено щоденне завдання";
+      const label = title ? lt(`Видалено щоденне завдання: ${title}`, `Deleted daily task: ${title}`, `Удалена ежедневная задача: ${title}`) : lt("Видалено щоденне завдання", "Deleted daily task", "Удалена ежедневная задача");
       localStore.addLog(label);
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
@@ -215,8 +221,8 @@ export function useUpdateDailyTaskReminder() {
       return updated;
     },
     onSuccess: (_updated, { id, remindAt }) => {
-      const label = remindAt ? "Заплановано" : "Скасовано";
-      localStore.addLog(`${label} нагадування для завдання #${id}`);
+      const label = remindAt ? lt("Заплановано", "Scheduled", "Запланировано") : lt("Скасовано", "Canceled", "Отменено");
+      localStore.addLog(lt(`${label} нагадування для завдання #${id}`, `${label} reminder for task #${id}`, `${label} напоминание для задачи #${id}`));
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -268,3 +274,10 @@ export function useStats() {
     queryFn: async () => localStore.getStats(),
   });
 }
+
+
+
+
+
+
+

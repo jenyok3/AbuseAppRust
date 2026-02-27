@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { LocalUser } from "@/lib/localStore";
+import { useI18n } from "@/lib/i18n";
 
 type SidebarProps = {
   user: LocalUser | null;
@@ -21,6 +22,7 @@ type SidebarProps = {
 };
 
 export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
+  const { t } = useI18n();
   const [location, setLocation] = useLocation();
   const [isHovered, setIsHovered] = useState(false);
   const [isAppFocused, setIsAppFocused] = useState(true);
@@ -35,8 +37,8 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
   const canSubmitUsername = isValidUsername;
 
   const navItems = [
-    { icon: Calendar, label: "Календар", href: "/calendar" },
-    { icon: Settings, label: "Налаштування", href: "/settings" },
+    { icon: Calendar, label: t("sidebar.calendar"), href: "/calendar" },
+    { icon: Settings, label: t("sidebar.settings"), href: "/settings" },
   ];
 
   const getCurrentType = (): "telegram" | "chrome" => {
@@ -226,10 +228,10 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
             {isExpanded ? (
               <div className="flex flex-col items-start">
                 <span className="text-sm font-medium text-white truncate w-full">
-                  {user?.name || "Гість"}
+                  {user?.name || t("sidebar.guest")}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {user?.username ? `@${user.username}` : "Вхід не виконано"}
+                  {user?.username ? `@${user.username}` : t("sidebar.notLoggedIn")}
                 </span>
               </div>
             ) : null}
@@ -244,9 +246,9 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
       <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
         <DialogContent className="bg-black/50 border-white/10 text-white max-w-md rounded-3xl backdrop-blur-md">
           <DialogHeader className="text-left">
-            <DialogTitle className="text-2xl font-display">Профіль</DialogTitle>
+            <DialogTitle className="text-2xl font-display">{t("sidebar.profile.title")}</DialogTitle>
             <DialogDescription className="text-white/60">
-              Вхід не обов'язковий для користування застосунком.
+              {t("sidebar.profile.description")}
             </DialogDescription>
           </DialogHeader>
           {user ? (
@@ -268,7 +270,7 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
                 variant="ghost"
                 className="w-full h-10 text-red-300 hover:text-red-200 hover:bg-red-500/10"
               >
-                Вийти
+                {t("sidebar.logout")}
               </Button>
             </div>
           ) : (
@@ -284,7 +286,7 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
               </div>
               {!canSubmitUsername && normalizedUsername.length > 0 ? (
                 <div className="text-xs text-red-300">
-                  Юзернейм: 5–32 символи, тільки латиниця, цифри або підкреслення.
+                  {t("sidebar.usernameHint")}
                 </div>
               ) : null}
               <Button
@@ -298,14 +300,14 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
                 className="h-11 px-5 border-0 bg-[#1f88c9] hover:bg-[#1a76ad] text-white font-semibold disabled:opacity-40 disabled:hover:bg-[#1f88c9] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
               >
                 <Send className="w-4 h-4 mr-2" />
-                Зберегти юзернейм
+                {t("sidebar.saveUsername")}
               </Button>
               <button
                 type="button"
                 onClick={() => setIsProfileOpen(false)}
                 className="text-xs text-white/50 hover:text-white/80 transition-colors"
               >
-                Пропустити
+                {t("sidebar.skip")}
               </button>
             </div>
           )}

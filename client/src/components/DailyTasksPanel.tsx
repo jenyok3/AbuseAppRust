@@ -8,54 +8,40 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
+import { useI18n } from "@/lib/i18n";
 
-const UKR_MONTHS = [
-  "січня",
-  "лютого",
-  "березня",
-  "квітня",
-  "травня",
-  "червня",
-  "липня",
-  "серпня",
-  "вересня",
-  "жовтня",
-  "листопада",
-  "грудня",
-] as const;
+const MONTHS_GENITIVE = {
+  uk: ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"],
+  en: ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+  ru: ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+} as const;
 
-const UKR_MONTHS_NOMINATIVE = [
-  "січень",
-  "лютий",
-  "березень",
-  "квітень",
-  "травень",
-  "червень",
-  "липень",
-  "серпень",
-  "вересень",
-  "жовтень",
-  "листопад",
-  "грудень",
-] as const;
-
-const UKR_MONTH_TO_INDEX: Record<string, number> = UKR_MONTHS.reduce((acc, month, index) => {
-  acc[month] = index;
-  return acc;
-}, {} as Record<string, number>);
-
-const REPEAT_OPTIONS: Array<{ value: DailyReminderRepeat; label: string }> = [
-  { value: "never", label: "Ніколи" },
-  { value: "daily", label: "Щодня" },
-  { value: "weekly", label: "Щотижня" },
-  { value: "biweekly", label: "Раз на 2 тижні" },
-  { value: "monthly", label: "Щомісяця" },
-  { value: "quarterly", label: "Раз на 3 місяці" },
-  { value: "semiannual", label: "Раз на 6 місяців" },
-  { value: "yearly", label: "Щороку" },
-];
+const MONTHS_NOMINATIVE = {
+  uk: ["січень", "лютий", "березень", "квітень", "травень", "червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"],
+  en: ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"],
+  ru: ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"],
+} as const;
 
 export function DailyTasksPanel() {
+  const { language } = useI18n();
+  const tr = (uk: string, en: string, ru: string) =>
+    language === "en" ? en : language === "ru" ? ru : uk;
+  const monthsGenitive = MONTHS_GENITIVE[language];
+  const monthsNominative = MONTHS_NOMINATIVE[language];
+  const monthToIndex: Record<string, number> = monthsGenitive.reduce((acc, month, index) => {
+    acc[month] = index;
+    return acc;
+  }, {} as Record<string, number>);
+  const repeatOptions: Array<{ value: DailyReminderRepeat; label: string }> = [
+    { value: "never", label: tr("Ніколи", "Never", "Никогда") },
+    { value: "daily", label: tr("Щодня", "Daily", "Ежедневно") },
+    { value: "weekly", label: tr("Щотижня", "Weekly", "Еженедельно") },
+    { value: "biweekly", label: tr("Раз на 2 тижні", "Every 2 weeks", "Раз в 2 недели") },
+    { value: "monthly", label: tr("Щомісяця", "Monthly", "Ежемесячно") },
+    { value: "quarterly", label: tr("Раз на 3 місяці", "Every 3 months", "Раз в 3 месяца") },
+    { value: "semiannual", label: tr("Раз на 6 місяців", "Every 6 months", "Раз в 6 месяцев") },
+    { value: "yearly", label: tr("Щороку", "Yearly", "Ежегодно") },
+  ];
   const { data: tasks, isLoading } = useDailyTasks();
   const { mutate: createTask, isPending: isCreating } = useCreateDailyTask();
   const { mutate: toggleTask } = useToggleDailyTask();
@@ -80,7 +66,7 @@ export function DailyTasksPanel() {
   const formatReminderDateText = (time?: number | null) => {
     if (!time) return "";
     const date = new Date(time);
-    return `${date.getDate()} ${UKR_MONTHS[date.getMonth()]}`;
+    return `${date.getDate()} ${monthsGenitive[date.getMonth()]}`;
   };
 
   const formatReminderTimeText = (time?: number | null) => {
@@ -94,17 +80,17 @@ export function DailyTasksPanel() {
     if (!time) return "";
     const date = new Date(time);
     const pad = (value: number) => String(value).padStart(2, "0");
-    return `${date.getDate()} ${UKR_MONTHS[date.getMonth()]} о ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    return `${date.getDate()} ${monthsGenitive[date.getMonth()]} ${tr("о", "at", "в")} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   };
 
   const getRepeatLabel = (value?: DailyReminderRepeat) =>
-    REPEAT_OPTIONS.find((option) => option.value === value)?.label ?? "Ніколи";
+    repeatOptions.find((option) => option.value === value)?.label ?? tr("Ніколи", "Never", "Никогда");
 
   const parseDateTextToDate = (value: string): Date | null => {
-    const match = value.trim().toLowerCase().match(/^(\d{1,2})\s+([а-яіїєґ]+)$/i);
+    const match = value.trim().toLowerCase().match(/^(\d{1,2})\s+([a-zа-яіїєґ]+)$/i);
     if (!match) return null;
     const day = Number(match[1]);
-    const monthIndex = UKR_MONTH_TO_INDEX[match[2]];
+    const monthIndex = monthToIndex[match[2]];
     if (!Number.isFinite(day) || day < 1 || day > 31 || monthIndex === undefined) return null;
     const now = new Date();
     const next = new Date(now.getFullYear(), monthIndex, day);
@@ -112,7 +98,7 @@ export function DailyTasksPanel() {
     return next;
   };
 
-  const formatDateButtonLabel = (date: Date): string => `${date.getDate()} ${UKR_MONTHS[date.getMonth()]}`;
+  const formatDateButtonLabel = (date: Date): string => `${date.getDate()} ${monthsGenitive[date.getMonth()]}`;
 
   const getCalendarGrid = (month: Date): Array<{ date: Date; inMonth: boolean }> => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -141,14 +127,14 @@ export function DailyTasksPanel() {
       return { isValid: false, value: null as number | null };
     }
 
-    const dateMatch = dateText.match(/^(\d{1,2})\s+([а-яіїєґ]+)$/i);
+    const dateMatch = dateText.match(/^(\d{1,2})\s+([a-zа-яіїєґ]+)$/i);
     if (!dateMatch) {
       return { isValid: false, value: null as number | null };
     }
 
     const day = Number(dateMatch[1]);
     const monthText = dateMatch[2];
-    const monthIndex = UKR_MONTH_TO_INDEX[monthText];
+    const monthIndex = monthToIndex[monthText];
     if (!Number.isFinite(day) || day < 1 || day > 31 || monthIndex === undefined) {
       return { isValid: false, value: null as number | null };
     }
@@ -292,9 +278,9 @@ export function DailyTasksPanel() {
             )}
           >
             {isLoading ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">Loading tasks...</div>
+              <div className="text-center py-8 text-muted-foreground text-sm">{tr("Завантаження задач...", "Loading tasks...", "Загрузка задач...")}</div>
             ) : tasks?.length === 0 ? (
-              <div className="text-center text-muted-foreground text-sm opacity-50">Немає щоденних завдань</div>
+              <div className="text-center text-muted-foreground text-sm opacity-50">{tr("Немає щоденних завдань", "No daily tasks", "Нет ежедневных задач")}</div>
             ) : (
               tasks?.map((task) => {
                 const reminders = Array.isArray(task.reminders) ? task.reminders : [];
@@ -337,14 +323,14 @@ export function DailyTasksPanel() {
                       <div className="relative flex items-center justify-end w-[72px]">
                         {isReminded ? (
                           <span className="absolute right-0 text-[10px] text-muted-foreground transition-opacity group-hover:opacity-0">
-                            Нагадано
+                            {tr("Нагадано", "Reminded", "Напомнено")}
                           </span>
                         ) : null}
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEditTaskModal(task)}
                             className="p-1.5 text-muted-foreground hover:text-white hover:bg-white/10 rounded-md transition-all"
-                            title="Редагувати"
+                            title={tr("Редагувати", "Edit", "Редактировать")}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -369,7 +355,7 @@ export function DailyTasksPanel() {
             <Input
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
-              placeholder="Додати нове завдання..."
+              placeholder={tr("Додати нове завдання...", "Add new task...", "Добавить новую задачу...")}
               className="daily-tasks-input !bg-black/50 !border-white/10 text-sm h-10 rounded-xl pr-12 w-full transition-all duration-300 !focus:outline-none !focus:border-primary/50 !focus:bg-black/60 !focus:ring-2 !focus:ring-primary/20 !focus-visible:outline-none !focus-visible:border-primary/50 !focus-visible:bg-black/60 !focus-visible:ring-2 !focus-visible:ring-primary/20 !focus-visible:ring-offset-0"
             />
             <Button
@@ -393,7 +379,7 @@ export function DailyTasksPanel() {
           <div className={cn("w-full max-w-md rounded-3xl border border-white/10 bg-black/50 backdrop-blur-md p-6", isCalendarMode ? "pb-2" : "")}>
             {isCalendarMode ? (
               <>
-                <h3 className="text-xl font-display font-bold text-white mb-4">Оберіть дату</h3>
+                <h3 className="text-xl font-display font-bold text-white mb-4">{tr("Оберіть дату", "Choose date", "Выберите дату")}</h3>
                 <div className="mb-2 flex items-center justify-between">
                   <button
                     type="button"
@@ -403,7 +389,7 @@ export function DailyTasksPanel() {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <p className="text-sm font-semibold text-white">
-                    {`${UKR_MONTHS_NOMINATIVE[calendarMonth.getMonth()].charAt(0).toUpperCase()}${UKR_MONTHS_NOMINATIVE[calendarMonth.getMonth()].slice(1)} ${calendarMonth.getFullYear()}`}
+                    {`${monthsNominative[calendarMonth.getMonth()].charAt(0).toUpperCase()}${monthsNominative[calendarMonth.getMonth()].slice(1)} ${calendarMonth.getFullYear()}`}
                   </p>
                   <button
                     type="button"
@@ -414,7 +400,7 @@ export function DailyTasksPanel() {
                   </button>
                 </div>
                 <div className="grid grid-cols-7 gap-1 mb-1">
-                  {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((d) => (
+                  {[tr("Пн", "Mo", "Пн"), tr("Вт", "Tu", "Вт"), tr("Ср", "We", "Ср"), tr("Чт", "Th", "Чт"), tr("Пт", "Fr", "Пт"), tr("Сб", "Sa", "Сб"), tr("Нд", "Su", "Вс")].map((d) => (
                     <span key={d} className="text-[11px] text-muted-foreground text-center py-1">{d}</span>
                   ))}
                 </div>
@@ -462,13 +448,13 @@ export function DailyTasksPanel() {
                     onClick={() => setIsCalendarMode(false)}
                     className="relative left-9 h-[58px] px-9 text-[17px] bg-transparent border-0 text-white hover:bg-transparent rounded-xl transition-none shadow-none hover:shadow-none focus-visible:ring-0"
                   >
-                    Закрити
+                    {tr("Закрити", "Close", "Закрыть")}
                   </Button>
                 </div>
               </>
             ) : (
               <>
-                <h3 className="text-xl font-display font-bold text-white mb-5">Редагувати завдання</h3>
+                <h3 className="text-xl font-display font-bold text-white mb-5">{tr("Редагувати завдання", "Edit task", "Редактировать задачу")}</h3>
                 <form
                   className="space-y-4"
                   autoComplete="off"
@@ -498,18 +484,18 @@ export function DailyTasksPanel() {
                   }}
                 >
                   <div className="space-y-2">
-                    <p className="text-sm font-normal text-muted-foreground">Назва</p>
+                    <p className="text-sm font-normal text-muted-foreground">{tr("Назва", "Title", "Название")}</p>
                     <Input
                       value={editingTaskTitle}
                       onChange={(e) => setEditingTaskTitle(e.target.value)}
                       autoComplete="new-password"
                       className="bg-black/50 border-white/10 h-11 rounded-xl text-white"
-                      placeholder="Введіть назву завдання"
+                      placeholder={tr("Введіть назву завдання", "Enter task title", "Введите название задачи")}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-sm font-normal text-muted-foreground">Дата й час нагадування</p>
+                    <p className="text-sm font-normal text-muted-foreground">{tr("Дата й час нагадування", "Reminder date and time", "Дата и время напоминания")}</p>
                     <div className="flex items-end justify-start gap-3">
                       <button
                         type="button"
@@ -522,9 +508,9 @@ export function DailyTasksPanel() {
                         }}
                         className="w-[170px] h-10 bg-transparent border-0 border-b border-white/30 text-center text-white/95 hover:border-white/60 transition-colors"
                       >
-                        {editingTaskReminderDate || "Оберіть дату"}
+                        {editingTaskReminderDate || tr("Оберіть дату", "Choose date", "Выберите дату")}
                       </button>
-                      <span className="text-white/70 text-sm pb-1">о</span>
+                      <span className="text-white/70 text-sm pb-1">{tr("о", "at", "в")}</span>
                       <div className={cn("h-10 w-[100px] border-b flex items-center justify-center gap-1", isReminderInvalid ? "border-red-500" : "border-white/30")}>
                         <input
                           ref={hourInputRef}
@@ -580,7 +566,7 @@ export function DailyTasksPanel() {
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">
-                      <span className="text-sm font-normal text-muted-foreground">Повторювати:</span>
+                      <span className="text-sm font-normal text-muted-foreground">{tr("Повторювати:", "Repeat:", "Повторять:")}</span>
                       <Select
                         value={editingTaskRepeatRule}
                         onValueChange={(value) => setEditingTaskRepeatRule(value as DailyReminderRepeat)}
@@ -593,7 +579,7 @@ export function DailyTasksPanel() {
                           <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
                         </SelectTrigger>
                         <SelectContent className="bg-black/95 border-white/10 text-white">
-                          {REPEAT_OPTIONS.map((option) => (
+                          {repeatOptions.map((option) => (
                             <SelectItem
                               key={option.value}
                               value={option.value}
@@ -608,7 +594,7 @@ export function DailyTasksPanel() {
 
                     {plannedReminders.length > 0 ? (
                       <div className="pt-2 space-y-2">
-                        <p className="text-sm font-normal text-muted-foreground text-center">Заплановано</p>
+                        <p className="text-sm font-normal text-muted-foreground text-center">{tr("Заплановано", "Scheduled", "Запланировано")}</p>
                         {plannedReminders
                           .slice()
                           .sort((a, b) => a.remindAt - b.remindAt)
@@ -629,7 +615,7 @@ export function DailyTasksPanel() {
                                 }}
                                 className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
                               >
-                                Видалити
+                                {tr("Видалити", "Delete", "Удалить")}
                               </button>
                             </div>
                           ))}
@@ -643,14 +629,14 @@ export function DailyTasksPanel() {
                       onClick={closeEditTaskModal}
                       className="flex-1 h-11 bg-black/50 border border-white/10 text-white hover:bg-white/10 rounded-xl"
                     >
-                      Скасувати
+                      {tr("Скасувати", "Cancel", "Отмена")}
                     </Button>
                     <Button
                       type="submit"
                       disabled={!canSaveTaskEdit}
                       className="flex-1 h-12 bg-primary hover:bg-primary active:bg-primary/95 text-white border-0 shadow-none hover:shadow-none focus-visible:ring-0 rounded-xl transition-all duration-200"
                     >
-                      Зберегти
+                      {tr("Зберегти", "Save", "Сохранить")}
                     </Button>
                   </div>
                 </form>

@@ -18,7 +18,7 @@ import { format, isToday, isSameYear } from "date-fns";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { GhostIcon } from "@/components/ui/ghost-icon";
 import { AccountStatsWidget } from "@/components/AccountStatsWidget";
-import { accountStatus, accountStatusLabels, type AccountStatus } from "@/lib/accountStatus";
+import { accountStatus, type AccountStatus } from "@/lib/accountStatus";
 import {
   readDirectory,
   launchAccounts,
@@ -57,6 +57,7 @@ import {
   type TelegramProcess,
   type TelegramProjectTuple,
 } from "@/lib/telegram-helpers";
+import { useI18n } from "@/lib/i18n";
 
 type DirectoryEntry = {
   name: string;
@@ -75,6 +76,10 @@ type LaunchProgressEvent = {
 
 export default function Telegram() {
   const { toast } = useToast();
+  const { language } = useI18n();
+  const tr = (uk: string, en: string, ru: string) =>
+    language === "en" ? en : language === "ru" ? ru : uk;
+  const locale = language === "en" ? "en" : language === "ru" ? "ru" : "uk";
   const queryClient = useQueryClient();
   const { data: recentActions = [] } = useLogs();
   const { mutate: createLog } = useCreateLog();
@@ -214,8 +219,12 @@ export default function Telegram() {
       
       if (!folderPath) {
         toast({
-          title: "Помилка",
-          description: "Спочатку вкажіть шлях до папки в налаштуваннях",
+          title: tr("Помилка", "Error", "Ошибка"),
+          description: tr(
+            "Спочатку вкажіть шлях до папки в налаштуваннях",
+            "First set the folder path in settings",
+            "Сначала укажите путь к папке в настройках"
+          ),
           variant: "destructive",
         });
         return;
@@ -229,8 +238,12 @@ export default function Telegram() {
       const accountDir = tgDirectories.find((dir) => dir.name === accountName);
       if (!accountDir) {
         toast({
-          title: "Помилка",
-          description: `Акаунт ${accountName} не знайдено`,
+          title: tr("Помилка", "Error", "Ошибка"),
+          description: tr(
+            `Акаунт ${accountName} не знайдено`,
+            `Account ${accountName} not found`,
+            `Аккаунт ${accountName} не найден`
+          ),
           variant: "destructive",
         });
         return;
@@ -246,15 +259,23 @@ export default function Telegram() {
       const status = await determineAccountStatus(tdataFiles, accountName, accountDir.path);
       
       toast({
-        title: "Аналіз завершено",
-        description: `${accountName}: ${status}. Деталі у консолі.`,
+        title: tr("Аналіз завершено", "Analysis completed", "Анализ завершен"),
+        description: tr(
+          `${accountName}: ${status}. Деталі у консолі.`,
+          `${accountName}: ${status}. Details in console.`,
+          `${accountName}: ${status}. Подробности в консоли.`
+        ),
       });
       
     } catch (error) {
       console.error(`Error analyzing ${accountName}:`, error);
       toast({
-        title: "Помилка аналізу",
-        description: `Не вдалося проаналізувати акаунт ${accountName}`,
+        title: tr("Помилка аналізу", "Analysis error", "Ошибка анализа"),
+        description: tr(
+          `Не вдалося проаналізувати акаунт ${accountName}`,
+          `Failed to analyze account ${accountName}`,
+          `Не удалось проанализировать аккаунт ${accountName}`
+        ),
         variant: "destructive",
       });
     }
@@ -265,8 +286,12 @@ export default function Telegram() {
     setAccountStatusOverrides(new Map());
     loadRealStats();
     toast({
-      title: "Оверрайди скинуто",
-      description: "Усі ручні статуси акаунтів очищено",
+      title: tr("Оверрайди скинуто", "Overrides reset", "Оверрайды сброшены"),
+      description: tr(
+        "Усі ручні статуси акаунтів очищено",
+        "All manual account statuses were cleared",
+        "Все ручные статусы аккаунтов очищены"
+      ),
     });
   };
 
@@ -282,8 +307,12 @@ export default function Telegram() {
     loadRealStats();
     
     toast({
-      title: "Статус змінено",
-      description: `Статус ${accountName} оновлено на ${status}`,
+      title: tr("Статус змінено", "Status updated", "Статус изменен"),
+      description: tr(
+        `Статус ${accountName} оновлено на ${status}`,
+        `Status for ${accountName} updated to ${status}`,
+        `Статус ${accountName} обновлен на ${status}`
+      ),
     });
   };
 
@@ -314,8 +343,12 @@ export default function Telegram() {
       console.error('Failed to load real stats:', error);
       if (manual) {
         toast({
-          title: "Помилка оновлення статистики",
-          description: "Не вдалося завантажити поточну статистику акаунтів",
+          title: tr("Помилка оновлення статистики", "Stats refresh error", "Ошибка обновления статистики"),
+          description: tr(
+            "Не вдалося завантажити поточну статистику акаунтів",
+            "Failed to load current account statistics",
+            "Не удалось загрузить текущую статистику аккаунтов"
+          ),
           variant: "destructive",
         });
       }
@@ -530,8 +563,12 @@ export default function Telegram() {
 
           if (hadQueue) {
             toast({
-              title: "Черга очищена",
-              description: "Застарілий прогрес запуску було скинуто.",
+              title: tr("Черга очищена", "Queue cleared", "Очередь очищена"),
+              description: tr(
+                "Застарілий прогрес запуску було скинуто.",
+                "Stale launch progress has been reset.",
+                "Устаревший прогресс запуска был сброшен."
+              ),
             });
           }
         } catch (error) {
@@ -842,8 +879,12 @@ export default function Telegram() {
         console.log('No Telegram files found. Available files:', fileList);
         
         toast({
-          title: "Telegram-акаунти не знайдено",
-          description: `У папці ${folderPath} не знайдено валідних Telegram-акаунтів. Вміст папки: ${fileList.substring(0, 200)}${fileList.length > 200 ? '...' : ''}`,
+          title: tr("Telegram-акаунти не знайдено", "Telegram accounts not found", "Telegram-аккаунты не найдены"),
+          description: tr(
+            `У папці ${folderPath} не знайдено валідних Telegram-акаунтів. Вміст папки: ${fileList.substring(0, 200)}${fileList.length > 200 ? '...' : ''}`,
+            `No valid Telegram accounts were found in folder ${folderPath}. Folder content: ${fileList.substring(0, 200)}${fileList.length > 200 ? "..." : ""}`,
+            `В папке ${folderPath} не найдено валидных Telegram-аккаунтов. Содержимое папки: ${fileList.substring(0, 200)}${fileList.length > 200 ? "..." : ""}`
+          ),
           variant: "destructive",
         });
         loadDefaultAccounts();
@@ -873,16 +914,24 @@ export default function Telegram() {
 
       if (shouldToast) {
         toast({
-          title: "Акаунти завантажено",
-          description: `Знайдено ${allAccounts.length} Telegram-акаунтів у папці ${folderPath}`,
+          title: tr("Акаунти завантажено", "Accounts loaded", "Аккаунты загружены"),
+          description: tr(
+            `Знайдено ${allAccounts.length} Telegram-акаунтів у папці ${folderPath}`,
+            `Found ${allAccounts.length} Telegram accounts in folder ${folderPath}`,
+            `Найдено ${allAccounts.length} Telegram-аккаунтов в папке ${folderPath}`
+          ),
         });
       }
       
     } catch (error) {
       console.error('Failed to load accounts from folder:', error);
       toast({
-        title: "Помилка завантаження",
-        description: `Не вдалося прочитати папку: ${error}`,
+        title: tr("Помилка завантаження", "Loading error", "Ошибка загрузки"),
+        description: tr(
+          `Не вдалося прочитати папку: ${error}`,
+          `Failed to read folder: ${error}`,
+          `Не удалось прочитать папку: ${error}`
+        ),
         variant: "destructive",
       });
       // Fallback to sample accounts if folder reading fails
@@ -918,13 +967,13 @@ export default function Telegram() {
       const cardLabel = Number.isFinite(cardNumber) ? Number(cardNumber) : accountId;
 
       toast({
-        title: "Нотатку оновлено",
-        description: `Акаунт ${cardLabel}`,
+        title: tr("Нотатку оновлено", "Note updated", "Заметка обновлена"),
+        description: tr(`Акаунт ${cardLabel}`, `Account ${cardLabel}`, `Аккаунт ${cardLabel}`),
       });
     } catch (error) {
       toast({
-        title: "Помилка збереження",
-        description: "Не вдалося оновити нотатку",
+        title: tr("Помилка збереження", "Save error", "Ошибка сохранения"),
+        description: tr("Не вдалося оновити нотатку", "Failed to update note", "Не удалось обновить заметку"),
         variant: "destructive",
       });
     }
@@ -942,13 +991,13 @@ export default function Telegram() {
       localStore.updateAccountDisplayName(accountId, displayName, scopeKey);
 
       toast({
-        title: "Назву оновлено",
-        description: `Акаунт ${cardLabel}`,
+        title: tr("Назву оновлено", "Name updated", "Имя обновлено"),
+        description: tr(`Акаунт ${cardLabel}`, `Account ${cardLabel}`, `Аккаунт ${cardLabel}`),
       });
     } catch (error) {
       toast({
-        title: "Помилка збереження",
-        description: "Не вдалося оновити назву",
+        title: tr("Помилка збереження", "Save error", "Ошибка сохранения"),
+        description: tr("Не вдалося оновити назву", "Failed to update name", "Не удалось обновить имя"),
         variant: "destructive",
       });
     }
@@ -989,7 +1038,7 @@ export default function Telegram() {
     if (!account) return;
     const next = Array.from(new Set([...getAccountHashtags(account), tag]));
     saveAccountHashtags(accountId, next);
-    logAction(`Додано хештег #${tag}`);
+    logAction(tr(`Додано хештег #${tag}`, `Added hashtag #${tag}`, `Добавлен хештег #${tag}`));
   };
 
   const handleRemoveHashtag = (accountId: number, tagToRemove: string) => {
@@ -997,7 +1046,7 @@ export default function Telegram() {
     if (!account) return;
     const next = getAccountHashtags(account).filter((tag) => tag !== tagToRemove);
     saveAccountHashtags(accountId, next);
-    logAction(`Видалено хештег #${tagToRemove}`);
+    logAction(tr(`Видалено хештег #${tagToRemove}`, `Removed hashtag #${tagToRemove}`, `Удален хештег #${tagToRemove}`));
   };
 
   const openHashtagModal = (accountId: number) => {
@@ -1037,11 +1086,17 @@ export default function Telegram() {
     try {
       const url = new URL(value);
       if (!value.startsWith("https://t.me/") && !value.startsWith("tg://")) {
-        return "Посилання має починатися з https://t.me/ або tg://";
+        return tr(
+          "Посилання має починатися з https://t.me/ або tg://",
+          "Link must start with https://t.me/ or tg://",
+          "Ссылка должна начинаться с https://t.me/ или tg://"
+        );
       }
-      return url ? null : "Некоректне посилання";
+      return url
+        ? null
+        : tr("Некоректне посилання", "Invalid link", "Некорректная ссылка");
     } catch {
-      return "Некоректне посилання";
+      return tr("Некоректне посилання", "Invalid link", "Некорректная ссылка");
     }
   };
 
@@ -1083,7 +1138,7 @@ export default function Telegram() {
     if (hashtagFilter === normalized) {
       setHashtagFilter("all");
     }
-    logAction(`Видалено хештег #${normalized}`);
+    logAction(tr(`Видалено хештег #${normalized}`, `Removed hashtag #${normalized}`, `Удален хештег #${normalized}`));
   };
 
   const handleSaveHashtagEdit = () => {
@@ -1091,7 +1146,7 @@ export default function Telegram() {
     const errors: string[] = [];
 
     if (!nextTag) {
-      errors.push("Вкажіть назву хештегу");
+      errors.push(tr("Вкажіть назву хештегу", "Enter hashtag name", "Укажите название хештега"));
     }
 
     const linkError = validateHashtagLink(hashtagEditLink);
@@ -1135,7 +1190,13 @@ export default function Telegram() {
       })
       .concat([{ tag: nextTag, link: nextLink }]);
     saveHashtagMeta(nextMeta);
-    logAction(`Оновлено хештег #${prevTag || nextTag}`);
+    logAction(
+      tr(
+        `Оновлено хештег #${prevTag || nextTag}`,
+        `Updated hashtag #${prevTag || nextTag}`,
+        `Обновлен хештег #${prevTag || nextTag}`
+      )
+    );
     closeHashtagEditModal();
   };
 
@@ -1149,8 +1210,12 @@ export default function Telegram() {
 
     if (!folderPath) {
       toast({
-        title: "Помилка",
-        description: "Спочатку вкажіть шлях до папки в налаштуваннях",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Спочатку вкажіть шлях до папки в налаштуваннях",
+          "First set the folder path in settings",
+          "Сначала укажите путь к папке в настройках"
+        ),
         variant: "destructive",
       });
       return;
@@ -1159,8 +1224,12 @@ export default function Telegram() {
     const profileId = extractProfileId(account);
     if (!profileId) {
       toast({
-        title: "Помилка",
-        description: `Не вдалося визначити номер профілю для ${account.name}`,
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          `Не вдалося визначити номер профілю для ${account.name}`,
+          `Failed to detect profile number for ${account.name}`,
+          `Не удалось определить номер профиля для ${account.name}`
+        ),
         variant: "destructive",
       });
       return;
@@ -1188,8 +1257,12 @@ export default function Telegram() {
     } catch (error) {
       console.error(`Failed to toggle account ${account.name}:`, error);
       toast({
-        title: "Помилка",
-        description: `Не вдалося ${openAccounts.has(accountId) ? "закрити" : "відкрити"} акаунт`,
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          `Не вдалося ${openAccounts.has(accountId) ? "закрити" : "відкрити"} акаунт`,
+          `Failed to ${openAccounts.has(accountId) ? "close" : "open"} account`,
+          `Не удалось ${openAccounts.has(accountId) ? "закрыть" : "открыть"} аккаунт`
+        ),
         variant: "destructive",
       });
     }
@@ -1208,7 +1281,7 @@ export default function Telegram() {
   const hashtagOptions = useMemo(
     () =>
       Array.from(new Set(accountsWithMeta.flatMap((account) => account.hashtags || []))).sort((a, b) =>
-        String(a).localeCompare(String(b), "uk", { sensitivity: "base", numeric: true })
+        String(a).localeCompare(String(b), locale, { sensitivity: "base", numeric: true })
       ),
     [accountsWithMeta]
   );
@@ -1242,7 +1315,7 @@ export default function Telegram() {
 
       const aName = String(a?.name || "");
       const bName = String(b?.name || "");
-      return aName.localeCompare(bName, "uk", { numeric: true, sensitivity: "base" });
+      return aName.localeCompare(bName, locale, { numeric: true, sensitivity: "base" });
     });
 
   const visibleAccounts = filteredAccounts.filter((account) => {
@@ -1281,8 +1354,12 @@ export default function Telegram() {
     const settings = localStore.getSettings();
     if (!settings.telegramFolderPath) {
       toast({
-        title: "Помилка",
-        description: "Спочатку вкажіть шлях до папки в налаштуваннях",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Спочатку вкажіть шлях до папки в налаштуваннях",
+          "First set the folder path in settings",
+          "Сначала укажите путь к папке в настройках"
+        ),
         variant: "destructive",
       });
       return;
@@ -1290,8 +1367,12 @@ export default function Telegram() {
 
     if (filteredProfileIds.length === 0) {
       toast({
-        title: "Немає акаунтів",
-        description: "Не вдалося знайти номери TG профілів для цього фільтру",
+        title: tr("Немає акаунтів", "No accounts", "Нет аккаунтов"),
+        description: tr(
+          "Не вдалося знайти номери TG профілів для цього фільтру",
+          "Failed to find TG profile numbers for this filter",
+          "Не удалось найти номера TG профилей для этого фильтра"
+        ),
         variant: "destructive",
       });
       return;
@@ -1303,8 +1384,12 @@ export default function Telegram() {
       launchParams = toLaunchParams(parsed, `#${hashtagFilter}`, isMix ? "yes" : "no");
     } catch (error) {
       toast({
-        title: "Помилка",
-        description: "Некоректне посилання у хештезі",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Некоректне посилання у хештезі",
+          "Invalid link in hashtag",
+          "Некорректная ссылка в хештеге"
+        ),
         variant: "destructive",
       });
       return;
@@ -1351,14 +1436,22 @@ export default function Telegram() {
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
 
       toast({
-        title: "Запуск виконано",
-        description: `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+        title: tr("Запуск виконано", "Launch completed", "Запуск выполнен"),
+        description: tr(
+          `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+          `Launched ${pids.length} accounts. Press F6 to continue.`,
+          `Запущено ${pids.length} аккаунтов. Нажмите F6 для продолжения.`
+        ),
       });
     } catch (error) {
       console.error("Launch hashtag error:", error);
       toast({
-        title: "Помилка запуску",
-        description: `Не вдалося запустити акаунти: ${error}`,
+        title: tr("Помилка запуску", "Launch error", "Ошибка запуска"),
+        description: tr(
+          `Не вдалося запустити акаунти: ${error}`,
+          `Failed to launch accounts: ${error}`,
+          `Не удалось запустить аккаунты: ${error}`
+        ),
         variant: "destructive",
       });
     } finally {
@@ -1396,8 +1489,8 @@ export default function Telegram() {
     cancelLaunchRef.current = false;
     if (!selectedProject) {
       toast({
-        title: "Помилка",
-        description: "Оберіть проєкт перед запуском",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr("Оберіть проєкт перед запуском", "Select a project before launching", "Выберите проект перед запуском"),
         variant: "destructive",
       });
       return;
@@ -1405,8 +1498,8 @@ export default function Telegram() {
 
     if (!startRange || !endRange) {
       toast({
-        title: "Помилка",
-        description: "Вкажіть початок і кінець діапазону",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr("Вкажіть початок і кінець діапазону", "Enter range start and end", "Укажите начало и конец диапазона"),
         variant: "destructive",
       });
       return;
@@ -1417,8 +1510,12 @@ export default function Telegram() {
 
     if (start > end) {
       toast({
-        title: "Помилка",
-        description: "Початок діапазону не може бути більшим за кінець",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Початок діапазону не може бути більшим за кінець",
+          "Range start cannot be greater than range end",
+          "Начало диапазона не может быть больше конца"
+        ),
         variant: "destructive",
       });
       return;
@@ -1428,8 +1525,12 @@ export default function Telegram() {
     const settings = localStore.getSettings();
     if (!settings.telegramFolderPath) {
       toast({
-        title: "Помилка",
-        description: "Спочатку вкажіть шлях до папки в налаштуваннях",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Спочатку вкажіть шлях до папки в налаштуваннях",
+          "First set the folder path in settings",
+          "Сначала укажите путь к папке в настройках"
+        ),
         variant: "destructive",
       });
       return;
@@ -1517,18 +1618,26 @@ export default function Telegram() {
       }
       setLaunchedPids(effectivePids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
-      logAction(`Запущено ${projectName}`);
+      logAction(tr(`Запущено ${projectName}`, `Launched ${projectName}`, `Запущено ${projectName}`));
       
       toast({
-        title: "Запуск виконано",
-        description: `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+        title: tr("Запуск виконано", "Launch completed", "Запуск выполнен"),
+        description: tr(
+          `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+          `Launched ${pids.length} accounts. Press F6 to continue.`,
+          `Запущено ${pids.length} аккаунтов. Нажмите F6 для продолжения.`
+        ),
       });
 
     } catch (error) {
       console.error('Launch error:', error);
       toast({
-        title: "Помилка запуску",
-        description: `Не вдалося запустити акаунти: ${error}`,
+        title: tr("Помилка запуску", "Launch error", "Ошибка запуска"),
+        description: tr(
+          `Не вдалося запустити акаунти: ${error}`,
+          `Failed to launch accounts: ${error}`,
+          `Не удалось запустить аккаунты: ${error}`
+        ),
         variant: "destructive",
       });
     } finally {
@@ -1579,8 +1688,12 @@ export default function Telegram() {
     const settings = localStore.getSettings();
     if (!settings.telegramFolderPath) {
       toast({
-        title: "Помилка",
-        description: "Спочатку вкажіть шлях до папки в налаштуваннях",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr(
+          "Спочатку вкажіть шлях до папки в налаштуваннях",
+          "First set the folder path in settings",
+          "Сначала укажите путь к папке в настройках"
+        ),
         variant: "destructive",
       });
       return;
@@ -1589,8 +1702,12 @@ export default function Telegram() {
     const allProfiles = getAllProfileIds();
     if (allProfiles.length === 0) {
       toast({
-        title: "Немає акаунтів",
-        description: "Не вдалося знайти номери TG профілів у списку акаунтів",
+        title: tr("Немає акаунтів", "No accounts", "Нет аккаунтов"),
+        description: tr(
+          "Не вдалося знайти номери TG профілів у списку акаунтів",
+          "Failed to find TG profile numbers in account list",
+          "Не удалось найти номера TG профилей в списке аккаунтов"
+        ),
         variant: "destructive",
       });
       return;
@@ -1625,17 +1742,31 @@ export default function Telegram() {
       }
       setLaunchedPids(effectivePids);
       setLaunchProgressCount((prev) => Math.max(prev, pids.length));
-      logAction(`Запущено ${pids.length} акаунтів (усі)`);
+      logAction(
+        tr(
+          `Запущено ${pids.length} акаунтів (усі)`,
+          `Launched ${pids.length} accounts (all)`,
+          `Запущено ${pids.length} аккаунтов (все)`
+        )
+      );
 
       toast({
-        title: "Запуск виконано",
-        description: `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+        title: tr("Запуск виконано", "Launch completed", "Запуск выполнен"),
+        description: tr(
+          `Запущено ${pids.length} акаунтів. Натисніть F6 для продовження.`,
+          `Launched ${pids.length} accounts. Press F6 to continue.`,
+          `Запущено ${pids.length} аккаунтов. Нажмите F6 для продолжения.`
+        ),
       });
     } catch (error) {
       console.error("Launch all error:", error);
       toast({
-        title: "Помилка запуску",
-        description: `Не вдалося запустити акаунти: ${error}`,
+        title: tr("Помилка запуску", "Launch error", "Ошибка запуска"),
+        description: tr(
+          `Не вдалося запустити акаунти: ${error}`,
+          `Failed to launch accounts: ${error}`,
+          `Не удалось запустить аккаунты: ${error}`
+        ),
         variant: "destructive",
       });
     } finally {
@@ -1693,16 +1824,26 @@ export default function Telegram() {
           startInput.select();
         }
       }, 160);
-      logAction(`Запущено своє посилання ${customProject.app_name || "custom"}`);
+      logAction(
+        tr(
+          `Запущено своє посилання ${customProject.app_name || "custom"}`,
+          `Launched custom link ${customProject.app_name || "custom"}`,
+          `Запущена своя ссылка ${customProject.app_name || "custom"}`
+        )
+      );
       
       toast({
-        title: "Кастомне посилання додано",
-        description: `Посилання застосовано (не зберігається)`,
+        title: tr("Кастомне посилання додано", "Custom link added", "Кастомная ссылка добавлена"),
+        description: tr(
+          "Посилання застосовано (не зберігається)",
+          "Link applied (not saved)",
+          "Ссылка применена (не сохраняется)"
+        ),
       });
     } catch (error) {
       toast({
-        title: "Помилка",
-        description: "Некоректне посилання",
+        title: tr("Помилка", "Error", "Ошибка"),
+        description: tr("Некоректне посилання", "Invalid link", "Некорректная ссылка"),
         variant: "destructive",
       });
     }
@@ -1758,15 +1899,23 @@ export default function Telegram() {
       }
       
       toast({
-        title: "Проєкт видалено",
-        description: `Проєкт ${projectName} успішно видалено`,
+        title: tr("Проєкт видалено", "Project deleted", "Проект удален"),
+        description: tr(
+          `Проєкт ${projectName} успішно видалено`,
+          `Project ${projectName} deleted successfully`,
+          `Проект ${projectName} успешно удален`
+        ),
         variant: "destructive",
       });
-      logAction(`Видалено проєкт ${projectName}`);
+      logAction(tr(`Видалено проєкт ${projectName}`, `Deleted project ${projectName}`, `Удален проект ${projectName}`));
     } else {
       toast({
-        title: "Помилка видалення",
-        description: `Не вдалося видалити проєкт ${projectName}`,
+        title: tr("Помилка видалення", "Delete error", "Ошибка удаления"),
+        description: tr(
+          `Не вдалося видалити проєкт ${projectName}`,
+          `Failed to delete project ${projectName}`,
+          `Не удалось удалить проект ${projectName}`
+        ),
         variant: "destructive",
       });
     }
@@ -1822,11 +1971,15 @@ export default function Telegram() {
       if (success) {
         // Update state
         setAvailableLinks(prev => [...prev, [project.name, fullProject]]);
-        logAction(`Додано проєкт ${project.name}`);
+        logAction(tr(`Додано проєкт ${project.name}`, `Added project ${project.name}`, `Добавлен проект ${project.name}`));
       } else {
         toast({
-          title: "Помилка збереження",
-          description: "Проєкт з такою назвою вже існує",
+          title: tr("Помилка збереження", "Save error", "Ошибка сохранения"),
+          description: tr(
+            "Проєкт з такою назвою вже існує",
+            "A project with this name already exists",
+            "Проект с таким именем уже существует"
+          ),
           variant: "destructive",
         });
       }
@@ -1846,11 +1999,21 @@ export default function Telegram() {
         if (oldName !== project.name && selectedProject === oldName) {
           setSelectedProject(project.name);
         }
-        logAction(`Оновлено проєкт ${oldName} -> ${project.name}`);
+        logAction(
+          tr(
+            `Оновлено проєкт ${oldName} -> ${project.name}`,
+            `Updated project ${oldName} -> ${project.name}`,
+            `Обновлен проект ${oldName} -> ${project.name}`
+          )
+        );
       } else {
         toast({
-          title: "Помилка збереження",
-          description: "Не вдалося оновити проєкт",
+          title: tr("Помилка збереження", "Save error", "Ошибка сохранения"),
+          description: tr(
+            "Не вдалося оновити проєкт",
+            "Failed to update project",
+            "Не удалось обновить проект"
+          ),
           variant: "destructive",
         });
       }
@@ -1885,8 +2048,12 @@ export default function Telegram() {
           const stillRunning = closingPids.filter((pid) => runningSet.has(pid));
           if (stillRunning.length > 0) {
             toast({
-              title: "Не всі акаунти закрито",
-              description: "Деякі процеси залишилися. Можливо, вони поза шляхом з налаштувань або Telegram не відповів.",
+              title: tr("Не всі акаунти закрито", "Not all accounts were closed", "Не все аккаунты закрыты"),
+              description: tr(
+                "Деякі процеси залишилися. Можливо, вони поза шляхом з налаштувань або Telegram не відповів.",
+                "Some processes are still running. They may be outside the configured path or Telegram did not respond.",
+                "Некоторые процессы остались. Возможно, они вне пути из настроек или Telegram не ответил."
+              ),
             });
           }
         } catch (error) {
@@ -1914,13 +2081,17 @@ export default function Telegram() {
         setIsMix(true);
 
         toast({
-          title: "Пакет завершено",
-          description: "Усі запущені Telegram процеси закрито",
+          title: tr("Пакет завершено", "Batch finished", "Пакет завершен"),
+          description: tr(
+            "Усі запущені Telegram процеси закрито",
+            "All launched Telegram processes were closed",
+            "Все запущенные процессы Telegram закрыты"
+          ),
         });
         if (activeProjectName) {
-          logAction(`Завершено ${activeProjectName}`);
+          logAction(tr(`Завершено ${activeProjectName}`, `Finished ${activeProjectName}`, `Завершено ${activeProjectName}`));
         } else {
-          logAction("Завершено запуск");
+          logAction(tr("Завершено запуск", "Launch finished", "Запуск завершен"));
         }
         return;
       }
@@ -1928,8 +2099,12 @@ export default function Telegram() {
       const settings = localStore.getSettings();
       if (!settings.telegramFolderPath) {
         toast({
-          title: "Помилка",
-          description: "Спробуйте ще раз після збереження шляху до Telegram",
+          title: tr("Помилка", "Error", "Ошибка"),
+          description: tr(
+            "Спробуйте ще раз після збереження шляху до Telegram",
+            "Try again after saving Telegram path",
+            "Попробуйте снова после сохранения пути к Telegram"
+          ),
           variant: "destructive",
         });
         return;
@@ -1952,8 +2127,12 @@ export default function Telegram() {
         localStore.clearTelegramLaunchState();
         lastBatchProfileIdsRef.current = [];
         toast({
-          title: "Пакет завершено",
-          description: "Усі запущені Telegram процеси закрито",
+          title: tr("Пакет завершено", "Batch finished", "Пакет завершен"),
+          description: tr(
+            "Усі запущені Telegram процеси закрито",
+            "All launched Telegram processes were closed",
+            "Все запущенные процессы Telegram закрыты"
+          ),
         });
         return;
       }
@@ -1983,8 +2162,12 @@ export default function Telegram() {
 
         if (!params) {
           toast({
-            title: "Помилка",
-            description: "Неможливо відновити параметри запуску",
+            title: tr("Помилка", "Error", "Ошибка"),
+            description: tr(
+              "Неможливо відновити параметри запуску",
+              "Unable to restore launch parameters",
+              "Невозможно восстановить параметры запуска"
+            ),
             variant: "destructive",
           });
           return;
@@ -2019,14 +2202,22 @@ export default function Telegram() {
       lastBatchProfileIdsRef.current = nextBatch;
 
       toast({
-        title: "Продовження запуску",
-        description: `Запущено ${pids.length} акаунтів. Залишилось ${remaining.length}.`,
+        title: tr("Продовження запуску", "Launch continuation", "Продолжение запуска"),
+        description: tr(
+          `Запущено ${pids.length} акаунтів. Залишилось ${remaining.length}.`,
+          `Launched ${pids.length} accounts. Remaining ${remaining.length}.`,
+          `Запущено ${pids.length} аккаунтов. Осталось ${remaining.length}.`
+        ),
       });
     } catch (error) {
       console.error('Error closing processes:', error);
       toast({
-        title: "Помилка завершення",
-        description: `Не вдалося закрити процеси: ${error}`,
+        title: tr("Помилка завершення", "Finish error", "Ошибка завершения"),
+        description: tr(
+          `Не вдалося закрити процеси: ${error}`,
+          `Failed to close processes: ${error}`,
+          `Не удалось закрыть процессы: ${error}`
+        ),
         variant: "destructive",
       });
     } finally {
@@ -2054,8 +2245,12 @@ export default function Telegram() {
 
     if (pids.length === 0 && !hasAnyToReset) {
       toast({
-        title: "Немає відкритих акаунтів",
-        description: "Зараз немає процесів для закриття",
+        title: tr("Немає відкритих акаунтів", "No open accounts", "Нет открытых аккаунтов"),
+        description: tr(
+          "Зараз немає процесів для закриття",
+          "There are no processes to close now",
+          "Сейчас нет процессов для закрытия"
+        ),
       });
       return;
     }
@@ -2088,19 +2283,27 @@ export default function Telegram() {
       await loadRealStats();
 
       toast({
-        title: pids.length > 0 ? "Усі акаунти закрито" : "Запуск зупинено",
-        description: pids.length > 0 ? `Завершено ${pids.length} процесів` : "Черга запуску очищена",
+        title: pids.length > 0
+          ? tr("Усі акаунти закрито", "All accounts are closed", "Все аккаунты закрыты")
+          : tr("Запуск зупинено", "Launch stopped", "Запуск остановлен"),
+        description: pids.length > 0
+          ? tr(`Завершено ${pids.length} процесів`, `Closed ${pids.length} processes`, `Завершено ${pids.length} процессов`)
+          : tr("Черга запуску очищена", "Launch queue cleared", "Очередь запуска очищена"),
       });
       if (activeProjectName) {
-        logAction(`Завершено ${activeProjectName}`);
+        logAction(tr(`Завершено ${activeProjectName}`, `Finished ${activeProjectName}`, `Завершено ${activeProjectName}`));
       } else if (hasAnyToReset) {
-        logAction("Завершено запуск");
+        logAction(tr("Завершено запуск", "Launch finished", "Запуск завершен"));
       }
     } catch (error) {
       console.error("Failed to close all opened accounts:", error);
       toast({
-        title: "Помилка закриття",
-        description: "Не вдалося завершити всі процеси",
+        title: tr("Помилка закриття", "Close error", "Ошибка закрытия"),
+        description: tr(
+          "Не вдалося завершити всі процеси",
+          "Failed to finish all processes",
+          "Не удалось завершить все процессы"
+        ),
         variant: "destructive",
       });
     }
@@ -2117,7 +2320,9 @@ export default function Telegram() {
 
   const hasClosableAccounts = openAccounts.size > 0 || launchedPids.length > 0 || pendingProfiles.length > 0;
   const canContinueBatch = !isLaunching && pendingProfiles.length > 0;
-  const batchActionLabel = canContinueBatch ? "Продовжити" : "Завершити";
+  const batchActionLabel = canContinueBatch
+    ? tr("Продовжити", "Continue", "Продолжить")
+    : tr("Завершити", "Finish", "Завершить");
   const batchActionHandler = canContinueBatch ? handleContinueLaunch : handleCloseAllOpenedAccounts;
 
   // Auto-clear selection once a batch finishes and all accounts are closed manually.
@@ -2168,12 +2373,12 @@ export default function Telegram() {
 
                 <h2 className="text-2xl font-display font-bold text-white mb-6 flex items-center gap-3">
                   <Rocket className="text-primary w-6 h-6" />
-                  Масовий запуск
+                  {tr("Масовий запуск", "Mass launch", "Массовый запуск")}
                 </h2>
 
                 <div className="space-y-4 w-full">
                   <div className="space-y-2">
-                    <Label className="text-sm font-normal text-muted-foreground">Проєкт</Label>
+                    <Label className="text-sm font-normal text-muted-foreground">{tr("Проєкт", "Project", "Проект")}</Label>
                     <div className="flex items-center gap-2">
                       <Select
                         value={selectedProject}
@@ -2182,7 +2387,7 @@ export default function Telegram() {
                         onOpenChange={setIsProjectSelectOpen}
                       >
                         <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/20 text-white flex-1">
-                          <SelectValue placeholder="Виберіть проєкт" />
+                          <SelectValue placeholder={tr("Виберіть проєкт", "Select project", "Выберите проект")} />
                         </SelectTrigger>
                         <SelectContent
                           className="bg-black border-white/10 text-white min-w-[300px]"
@@ -2203,7 +2408,7 @@ export default function Telegram() {
                               value="__none__"
                               className="focus:bg-white/10 focus:text-white text-muted-foreground"
                             >
-                              Очистити вибір
+                              {tr("Очистити вибір", "Clear selection", "Очистить выбор")}
                             </SelectItem>
                           ) : null}
                           <SelectItem 
@@ -2212,7 +2417,7 @@ export default function Telegram() {
                             className="focus:bg-primary/20 focus:text-white pr-20"
                           >
                             <div className="flex items-center w-full">
-                              <span className="flex-1">Своє посилання</span>
+                              <span className="flex-1">{tr("Своє посилання", "Custom link", "Своя ссылка")}</span>
                             </div>
                           </SelectItem>
                           {availableLinks.map(([name, link]) => (
@@ -2269,9 +2474,13 @@ export default function Telegram() {
                             ? "text-white/80 hover:text-white hover:bg-white/10 hover:border-white/20"
                             : "text-white/30 cursor-default"
                         }`}
-                        title="Відкрити всі акаунти (за кількістю потоків)"
+                        title={tr(
+                          "Відкрити всі акаунти (за кількістю потоків)",
+                          "Open all accounts (based on thread count)",
+                          "Открыть все аккаунты (по количеству потоков)"
+                        )}
                       >
-                        Відкрити всі
+                        {tr("Відкрити всі", "Open all", "Открыть все")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -2286,7 +2495,7 @@ export default function Telegram() {
 
                   <div className="grid grid-cols-2 gap-3 max-w-[18rem]">
                     <div className="space-y-2">
-                      <Label className="text-sm font-normal text-muted-foreground">Початок</Label>
+                      <Label className="text-sm font-normal text-muted-foreground">{tr("Початок", "Start", "Начало")}</Label>
                       <Input 
                         id="start-range-input"
                         type="number" 
@@ -2307,7 +2516,7 @@ export default function Telegram() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-sm font-normal text-muted-foreground">Кінець</Label>
+                      <Label className="text-sm font-normal text-muted-foreground">{tr("Кінець", "End", "Конец")}</Label>
                       <Input 
                         id="end-range-input"
                         type="number" 
@@ -2336,7 +2545,7 @@ export default function Telegram() {
                       className="border-white/20 data-[state=checked]:bg-primary data-[state=checked]:text-white w-5 h-5 rounded-md" 
                     />
                     <Label htmlFor="mix" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-muted-foreground">
-                      Увімкнути режим "Мікс"
+                      {tr('Увімкнути режим "Мікс"', 'Enable "Mix" mode', 'Включить режим "Микс"')}
                     </Label>
                   </div>
                 </div>
@@ -2347,7 +2556,7 @@ export default function Telegram() {
                       <div className="h-12 flex items-center gap-3">
                         <div className="min-w-0 flex-1 flex items-center gap-3">
                           <span className="text-[11px] tracking-[0.2em] text-muted-foreground/80 shrink-0">
-                            Прогрес
+                            {tr("Прогрес", "Progress", "Прогресс")}
                           </span>
                           <SegmentProgress
                             total={totalProfilesCount || segmentCount}
@@ -2372,12 +2581,16 @@ export default function Telegram() {
                             onClick={handleCloseAllOpenedAccounts}
                             className="h-10 min-w-[120px] rounded-xl border border-white/10 text-white/80 hover:text-white hover:bg-white/10 focus-visible:ring-0"
                           >
-                            Завершити
+                            {tr("Завершити", "Finish", "Завершить")}
                           </Button>
                         ) : null}
                       </div>
                       <div className="text-[11px] text-muted-foreground/70">
-                        F6 працює як швидке продовження.
+                        {tr(
+                          "F6 працює як швидке продовження.",
+                          "F6 works as a quick continue.",
+                          "F6 работает как быстрое продолжение."
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -2386,7 +2599,7 @@ export default function Telegram() {
                       disabled={isLaunching || (!selectedProject || !startRange || !endRange)}
                       className="h-12 w-full sm:w-auto sm:min-w-[230px] text-base font-bold bg-primary hover:bg-primary/90 text-white border-0 shadow-none hover:shadow-none hover:-translate-y-0.5 transition-all duration-300 rounded-xl uppercase tracking-widest focus-visible:ring-0 focus-visible:outline-none"
                     >
-                      {"ЗАПУСТИТИ"}
+                      {tr("ЗАПУСТИТИ", "LAUNCH", "ЗАПУСТИТЬ")}
                     </Button>
                   )}
                 </div>
@@ -2404,12 +2617,12 @@ export default function Telegram() {
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <Clock className="text-primary w-5 h-5 shrink-0" />
-                    <h3 className="text-xl font-display font-bold text-white">Останні дії</h3>
+                    <h3 className="text-xl font-display font-bold text-white">{tr("Останні дії", "Recent actions", "Последние действия")}</h3>
                   </div>
                   
                   {recentActions.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground/70">
-                      Немає дій
+                      {tr("Немає дій", "No actions", "Нет действий")}
                     </div>
                   ) : (
                     <ScrollArea className="flex-1 min-h-0">
@@ -2453,7 +2666,7 @@ export default function Telegram() {
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
-                        title="Скинути всі оверрайди"
+                        title={tr("Скинути всі оверрайди", "Reset all overrides", "Сбросить все оверрайды")}
                       >
                         <X className="w-3 h-3" />
                       </Button>
@@ -2464,7 +2677,7 @@ export default function Telegram() {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
-                      title="Оновити статистику"
+                      title={tr("Оновити статистику", "Refresh stats", "Обновить статистику")}
                     >
                       <RefreshCw className={`w-3 h-3 ${statsLoading ? 'animate-spin' : ''}`} />
                     </Button>
@@ -2510,7 +2723,7 @@ export default function Telegram() {
           >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-2xl font-display font-bold text-white">
-                Список акаунтів
+                {tr("Список акаунтів", "Accounts list", "Список аккаунтов")}
               </h3>
                 <div className="flex items-center gap-2">
                 <div className="relative">
@@ -2524,7 +2737,7 @@ export default function Telegram() {
                     onChange={(e) => setAccountSearch(e.target.value)}
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => setIsSearchFocused(false)}
-                    placeholder="Пошук"
+                    placeholder={tr("Пошук", "Search", "Поиск")}
                     className={`h-9 w-60 bg-black/40 border-white/10 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20 ${
                       isSearchFocused ? "pl-3" : "pl-9"
                     }`}
@@ -2545,10 +2758,10 @@ export default function Telegram() {
                       hideIcon
                       title={
                         notesFilter === "with"
-                          ? "Фільтр: З нотатками"
+                          ? tr("Фільтр: З нотатками", "Filter: With notes", "Фильтр: С заметками")
                           : hashtagFilter === "all"
-                            ? "Фільтр за #"
-                            : `Фільтр: #${hashtagFilter}`
+                            ? tr("Фільтр за #", "Filter by #", "Фильтр по #")
+                            : tr(`Фільтр: #${hashtagFilter}`, `Filter: #${hashtagFilter}`, `Фильтр: #${hashtagFilter}`)
                       }
                       className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 items-center justify-center rounded-md bg-transparent border-0 p-0 text-white/60 hover:text-white hover:bg-white/10 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-none"
                     >
@@ -2562,13 +2775,13 @@ export default function Telegram() {
                         value="all"
                         className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                       >
-                        Усі
+                        {tr("Усі", "All", "Все")}
                       </SelectItem>
                       <SelectItem
                         value={notesFilterValue}
                         className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                       >
-                        З нотатками
+                        {tr("З нотатками", "With notes", "С заметками")}
                       </SelectItem>
                       {hashtagOptions.map((tag) => {
                         const meta = getHashtagMetaItem(tag);
@@ -2581,7 +2794,7 @@ export default function Telegram() {
                               <div className="flex items-center w-full">
                                 <span className="flex-1 max-w-[120px] truncate">#{tag}</span>
                                 {meta?.link ? (
-                                  <span className="text-[10px] text-primary/70 ml-2">link</span>
+                                  <span className="text-[10px] text-primary/70 ml-2">{tr("посилання", "link", "ссылка")}</span>
                                 ) : null}
                               </div>
                             </SelectItem>
@@ -2630,10 +2843,14 @@ export default function Telegram() {
                     onClick={handleLaunchByHashtagFilter}
                     disabled={isLaunching || filteredProfileIds.length === 0}
                     className="h-9 px-3 border font-display font-semibold tracking-[0.02em] transition-all duration-200 border-white/10 bg-white/[0.02] text-white/85 hover:text-white hover:bg-white/10 hover:border-white/25"
-                    title={`Запустити акаунти за #${hashtagFilter}`}
+                    title={tr(
+                      `Запустити акаунти за #${hashtagFilter}`,
+                      `Launch accounts by #${hashtagFilter}`,
+                      `Запустить аккаунты по #${hashtagFilter}`
+                    )}
                   >
                     <Rocket className="w-4 h-4 mr-2 text-primary/80" />
-                    Запустити за #
+                    {tr("Запустити за #", "Launch by #", "Запустить по #")}
                   </Button>
                 ) : null}
                 <Button
@@ -2648,7 +2865,7 @@ export default function Telegram() {
                   }`}
                 >
                   <X className={`w-4 h-4 mr-2 transition-colors ${hasClosableAccounts ? "text-white/70 group-hover:text-red-500" : "text-white/35"}`} />
-                  Закрити всі
+                  {tr("Закрити всі", "Close all", "Закрыть все")}
                 </Button>
               </div>
             </div>
@@ -2663,12 +2880,15 @@ export default function Telegram() {
                     className="col-span-full flex flex-col items-center justify-center py-16 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-3" />
-                    <p className="text-sm text-slate-500">Завантаження акаунтів...</p>
+                    <p className="text-sm text-slate-500">{tr("Завантаження акаунтів...", "Loading accounts...", "Загрузка аккаунтов...")}</p>
                   </motion.div>
                 ) : visibleAccounts.length > 0 ? (
                   visibleAccounts.map((account, index) => {
-                    const statusLabel =
-                      accountStatusLabels[account.effectiveStatus as AccountStatus] ?? account.effectiveStatus;
+                    const statusLabel = account.effectiveStatus === accountStatus.active
+                      ? tr("активні", "active", "активные")
+                      : account.effectiveStatus === accountStatus.blocked
+                        ? tr("заблоковані", "blocked", "заблокированные")
+                        : tr("неактивні", "inactive", "неактивные");
                     const displayName = String(account.displayName ?? "").trim();
                     const hasDisplayName = displayName.length > 0;
                     return (
@@ -2686,7 +2906,7 @@ export default function Telegram() {
                       {account.effectiveStatus === accountStatus.active && (
                         <span
                           className="absolute right-8 top-3 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
-                          title="Активний"
+                          title={tr("Активний", "Active", "Активный")}
                         />
                       )}
                       <button
@@ -2697,7 +2917,7 @@ export default function Telegram() {
                           openHashtagModal(account.id);
                         }}
                         className={`absolute ${hasDisplayName ? "right-9" : "right-3"} top-2.5 h-5 w-5 rounded-md flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity`}
-                        title="Додати хештег"
+                        title={tr("Додати хештег", "Add hashtag", "Добавить хештег")}
                       >
                         #
                       </button>
@@ -2714,7 +2934,7 @@ export default function Telegram() {
                         className={`absolute right-3 top-2.5 h-5 w-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 opacity-0 pointer-events-none transition-opacity ${
                           hasDisplayName ? "group-hover:opacity-100 group-hover:pointer-events-auto" : ""
                         }`}
-                        title={hasDisplayName ? "Копіювати назву" : ""}
+                        title={hasDisplayName ? tr("Копіювати назву", "Copy name", "Копировать имя") : ""}
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -2767,7 +2987,7 @@ export default function Telegram() {
                                         setEditingAccountId(account.id);
                                         setEditingDisplayName(String(account.displayName ?? ""));
                                       }}
-                                      title="Редагувати ім'я"
+                                      title={tr("Редагувати ім'я", "Edit name", "Редактировать имя")}
                                     >
                                       {index + 1}
                                     </button>
@@ -2781,7 +3001,7 @@ export default function Telegram() {
                                           setEditingAccountId(account.id);
                                           setEditingDisplayName(String(account.displayName ?? ""));
                                         }}
-                                        title="Редагувати ім'я"
+                                        title={tr("Редагувати ім'я", "Edit name", "Редактировать имя")}
                                       >
                                         {displayName}
                                       </button>
@@ -2803,8 +3023,8 @@ export default function Telegram() {
                                       type="button"
                                       onClick={() => handleRemoveHashtag(account.id, tag)}
                                       className="absolute right-1 flex items-center justify-center opacity-0 pointer-events-none group-hover/hashtag:opacity-100 group-hover/hashtag:pointer-events-auto transition-opacity"
-                                      title={`Видалити #${tag}`}
-                                      aria-label={`Видалити #${tag}`}
+                                      title={tr(`Видалити #${tag}`, `Remove #${tag}`, `Удалить #${tag}`)}
+                                      aria-label={tr(`Видалити #${tag}`, `Remove #${tag}`, `Удалить #${tag}`)}
                                     >
                                       <X className="w-2.5 h-2.5 text-white/70 group-hover:text-red-500 transition-colors" />
                                     </button>
@@ -2827,7 +3047,7 @@ export default function Telegram() {
                       </div>
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Додати нотатку.."
+                          placeholder={tr("Додати нотатку..", "Add note..", "Добавить заметку..")}
                           className="bg-black/40 border-white/5 text-white text-xs flex-1 placeholder:text-gray-500"
                             defaultValue={account.notes ?? ""}
                             onBlur={(e) => {
@@ -2888,14 +3108,16 @@ export default function Telegram() {
                     {accountFilter === accountStatus.blocked ? (
                       <img
                         src={blockedGhostIcon}
-                        alt="Blocked accounts"
+                        alt={tr("Заблоковані акаунти", "Blocked accounts", "Заблокированные аккаунты")}
                         className="w-16 h-16 object-contain mb-4"
                       />
                     ) : (
                       <SearchX className="w-16 h-16 text-slate-400 mb-4" />
                     )}
                     <p className="text-xl font-medium text-slate-300 mb-2">
-                      {accountFilter === accountStatus.blocked ? "Жодного бану" : "Немає акаунтів"}
+                      {accountFilter === accountStatus.blocked
+                        ? tr("Жодного бану", "No blocked accounts", "Нет банов")
+                        : tr("Немає акаунтів", "No accounts", "Нет аккаунтов")}
                     </p>
                     {accountFilter !== accountStatus.blocked ? null : null}
                   </motion.div>
@@ -2925,7 +3147,7 @@ export default function Telegram() {
       <Dialog open={isHashtagModalOpen} onOpenChange={(open) => (open ? setIsHashtagModalOpen(true) : closeHashtagModal())}>
         <DialogContent hideClose className="bg-black/40 backdrop-blur-md border border-white/5 text-white sm:max-w-md p-8 rounded-3xl">
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-display font-bold text-white">Додати хештег</h2>
+            <h2 className="text-2xl font-display font-bold text-white">{tr("Додати хештег", "Add hashtag", "Добавить хештег")}</h2>
             <button
               onClick={closeHashtagModal}
               className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-xl transition-all duration-200"
@@ -2935,7 +3157,13 @@ export default function Telegram() {
           </div>
           <div className="space-y-3">
             <Label className="text-sm font-normal text-muted-foreground">
-              {hashtagModalAccount ? `Акаунт: ${hashtagModalAccount.name}` : "Оберіть акаунт"}
+              {hashtagModalAccount
+                ? tr(
+                    `Акаунт: ${hashtagModalAccount.name}`,
+                    `Account: ${hashtagModalAccount.name}`,
+                    `Аккаунт: ${hashtagModalAccount.name}`
+                  )
+                : tr("Оберіть акаунт", "Select account", "Выберите аккаунт")}
             </Label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/50">
@@ -2962,14 +3190,14 @@ export default function Telegram() {
               onClick={closeHashtagModal}
               className="flex-1 h-12 bg-black/50 border border-white/10 text-white hover:bg-white/10 rounded-xl transition-all duration-300"
             >
-              Скасувати
+              {tr("Скасувати", "Cancel", "Отмена")}
             </Button>
             <Button
               type="button"
               onClick={submitHashtagModal}
               className="flex-1 h-12 bg-primary hover:bg-primary active:bg-primary/95 text-white border-0 shadow-none hover:shadow-none focus-visible:ring-0 rounded-xl transition-all duration-200"
             >
-              Додати
+              {tr("Додати", "Add", "Добавить")}
             </Button>
           </div>
         </DialogContent>
@@ -2978,7 +3206,7 @@ export default function Telegram() {
       <Dialog open={isHashtagEditOpen} onOpenChange={(open) => (open ? setIsHashtagEditOpen(true) : closeHashtagEditModal())}>
         <DialogContent hideClose className="bg-black/40 backdrop-blur-md border border-white/5 text-white sm:max-w-md p-8 rounded-3xl">
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-display font-bold text-white">Редагувати хештег</h2>
+            <h2 className="text-2xl font-display font-bold text-white">{tr("Редагувати хештег", "Edit hashtag", "Редактировать хештег")}</h2>
             <button
               onClick={closeHashtagEditModal}
               className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-xl transition-all duration-200"
@@ -2989,7 +3217,7 @@ export default function Telegram() {
           <div className="space-y-6">
             <div className="space-y-3">
               <Label className="text-sm font-normal text-muted-foreground">
-                Назва хештегу
+                {tr("Назва хештегу", "Hashtag name", "Название хештега")}
               </Label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/50">
@@ -3005,7 +3233,7 @@ export default function Telegram() {
             </div>
             <div className="space-y-3">
               <Label className="text-sm font-normal text-muted-foreground">
-                Посилання на проєкт (необов'язково)
+                {tr("Посилання на проєкт (необов'язково)", "Project link (optional)", "Ссылка на проект (необязательно)")}
               </Label>
               <Input
                 autoComplete="new-password"
@@ -3031,14 +3259,14 @@ export default function Telegram() {
               onClick={closeHashtagEditModal}
               className="flex-1 h-12 bg-black/50 border border-white/10 text-white hover:bg-white/10 rounded-xl transition-all duration-300"
             >
-              Скасувати
+              {tr("Скасувати", "Cancel", "Отмена")}
             </Button>
             <Button
               type="button"
               onClick={handleSaveHashtagEdit}
               className="flex-1 h-12 bg-primary hover:bg-primary active:bg-primary/95 text-white border-0 shadow-none hover:shadow-none focus-visible:ring-0 rounded-xl transition-all duration-200"
             >
-              Зберегти
+              {tr("Зберегти", "Save", "Сохранить")}
             </Button>
           </div>
         </DialogContent>

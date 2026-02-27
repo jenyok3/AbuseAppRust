@@ -18,6 +18,7 @@ import { AuthOnboardingModal } from "@/components/AuthOnboardingModal";
 import { ThemeEffects } from "@/components/ThemeEffects";
 import { useEffect, useState } from "react";
 import { localStore, type LocalUser } from "@/lib/localStore";
+import { useI18n } from "@/lib/i18n";
 
 function Router() {
   return (
@@ -34,6 +35,7 @@ function Router() {
 }
 
 function App() {
+  const { language } = useI18n();
   const [authUser, setAuthUser] = useState<LocalUser | null>(null);
   const [showAuthOnboarding, setShowAuthOnboarding] = useState(false);
 
@@ -50,6 +52,10 @@ function App() {
     document.body.style.backgroundImage = "none";
     document.body.style.background = "#000000";
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   const handleTelegramLogin = (username: string) => {
     const normalized = username.trim().replace(/^@+/, "");

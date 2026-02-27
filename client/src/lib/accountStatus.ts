@@ -7,7 +7,7 @@ export const accountStatus = {
 export type AccountStatus = (typeof accountStatus)[keyof typeof accountStatus];
 
 export const accountStatusLabels: Record<AccountStatus, string> = {
-  active: "активні",
-  blocked: "заблоковані",
-  inactive: "неактивні",
+  active: "active",
+  blocked: "blocked",
+  inactive: "inactive",
 };

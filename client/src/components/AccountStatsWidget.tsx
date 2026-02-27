@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import blockedGhostIcon from "@/assets/icons/blocked-ghost-custom.png";
 import { accountStatus, type AccountStatus } from "@/lib/accountStatus";
+import { useI18n } from "@/lib/i18n";
 
 interface AccountStatsWidgetProps {
   className?: string;
@@ -25,12 +26,13 @@ export function AccountStatsWidget({
   activeFilter = "all",
   onFilterChange,
 }: AccountStatsWidgetProps) {
+  const { t } = useI18n();
   const defaultStats = { total: 0, running: 0, blocked: 0 };
   const finalStats = stats || defaultStats;
 
   const chartData = [
-    { name: "Запущено", value: finalStats.running, color: "#22c55e" },
-    { name: "Заблоковано", value: finalStats.blocked, color: "#64748b" },
+    { name: t("stats.accounts.running"), value: finalStats.running, color: "#22c55e" },
+    { name: t("stats.accounts.blocked"), value: finalStats.blocked, color: "#64748b" },
   ];
 
   return (
@@ -38,11 +40,11 @@ export function AccountStatsWidget({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.5 }}
-      className={cn("bg-transparent border border-white/5 rounded-2xl p-3 sm:p-4 h-auto sm:h-56 min-h-56 flex flex-col relative overflow-hidden w-full", className)}
+      className={cn("bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-3 sm:p-4 h-auto sm:h-56 min-h-56 flex flex-col relative overflow-hidden w-full", className)}
     >
       <div className="flex items-center gap-2 mb-3">
         <Activity className="text-primary w-5 h-5 shrink-0" />
-        <h3 className="text-base sm:text-xl font-display font-bold text-white leading-tight">Статистика акаунтів</h3>
+        <h3 className="text-base sm:text-xl font-display font-bold text-white leading-tight">{t("stats.accounts.title")}</h3>
       </div>
 
       <div className="flex-1 min-w-0">
@@ -75,7 +77,7 @@ export function AccountStatsWidget({
             ) : (
               <div className="w-28 h-28 sm:w-40 sm:h-40 flex items-center justify-center">
                 <div className="text-center">
-                  <p className="text-muted-foreground text-sm">Немає даних для відображення</p>
+                  <p className="text-muted-foreground text-sm">{t("stats.accounts.noData")}</p>
                 </div>
               </div>
             )}

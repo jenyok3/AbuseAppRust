@@ -1,8 +1,9 @@
-﻿import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useDailyTasks, useMarkDailyTaskReminded } from "@/hooks/use-dashboard";
 import { invoke } from "@tauri-apps/api/core";
 import { localStore, type DailyReminderRepeat } from "@/lib/localStore";
 import { useQueryClient } from "@tanstack/react-query";
+import { useI18n } from "@/lib/i18n";
 
 const CHECK_INTERVAL_MS = 15000;
 
@@ -44,6 +45,10 @@ async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 export function DailyReminderScheduler() {
+  const { language } = useI18n();
+  const tr = (uk: string, en: string, ru: string) =>
+    language === "en" ? en : language === "ru" ? ru : uk;
+
   const { data: tasks = [] } = useDailyTasks();
   const { mutate: markReminded } = useMarkDailyTaskReminded();
   const queryClient = useQueryClient();
@@ -67,10 +72,16 @@ export function DailyReminderScheduler() {
           if (notifiedRef.current.has(notifyKey)) continue;
 
           let sent = false;
+          const notifyBody = tr(
+            `�����������: ${task.title}`,
+            `Reminder: ${task.title}`,
+            `�����������: ${task.title}`
+          );
+
           try {
             await invoke("send_reminder_notification", {
               title: "AbuseApp",
-              body: `Нагадування: ${task.title}`,
+              body: notifyBody,
             });
             sent = true;
           } catch (error) {
@@ -82,7 +93,7 @@ export function DailyReminderScheduler() {
             if (!granted) continue;
 
             const notification = new window.Notification("AbuseApp", {
-              body: `Нагадування: ${task.title}`,
+              body: notifyBody,
               tag: `daily-task-${task.id}`,
             });
             notification.onclick = async () => {
@@ -104,12 +115,12 @@ export function DailyReminderScheduler() {
               repeatRule,
               remindedAt: null,
             });
-            localStore.addLog(`Нагадування: ${task.title}`);
+            localStore.addLog(notifyBody);
             queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
           } else {
             const remindedAt = Date.now();
             markReminded({ id: task.id, reminderId: reminder.id, remindedAt });
-            localStore.addLog(`Нагадування: ${task.title}`);
+            localStore.addLog(notifyBody);
           }
 
           queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
@@ -126,7 +137,7 @@ export function DailyReminderScheduler() {
         window.clearInterval(intervalId);
       }
     };
-  }, [tasks, markReminded, queryClient]);
+  }, [tasks, markReminded, queryClient, language]);
 
   return null;
 }

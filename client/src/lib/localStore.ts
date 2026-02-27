@@ -74,6 +74,7 @@ export type LocalSettings = {
   telegramFolderPath: string;
   chromeThreads: string;
   chromeFolderPath: string;
+  language?: "uk" | "en" | "ru";
   themeEffect?: "none" | "sakura" | "rain" | "leaves" | "snow";
   themeSnowSpeed?: number;
   themeSakuraIntensity?: number;
@@ -131,6 +132,7 @@ const DEFAULT_SETTINGS: LocalSettings = {
   telegramFolderPath: "",
   chromeThreads: "1",
   chromeFolderPath: "",
+  language: "uk",
   themeEffect: "none",
   themeSnowSpeed: 1,
   themeSakuraIntensity: 1,

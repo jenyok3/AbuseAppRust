@@ -8,7 +8,9 @@ import { useToast } from "@/hooks/use-toast";
 import { openDirectoryDialog, saveSettings as saveSettingsTauri } from "@/lib/tauri-api";
 import { localStore } from "@/lib/localStore";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { type AppLanguage, useI18n } from "@/lib/i18n";
 
 const normalizeThemeEffect = (value?: string) => {
   switch (value) {
@@ -32,10 +34,12 @@ const normalizeThemeEffect = (value?: string) => {
 
 export default function Settings() {
   const { toast } = useToast();
+  const { t } = useI18n();
   const [telegramThreads, setTelegramThreads] = useState<string>("");
   const [telegramFolderPath, setTelegramFolderPath] = useState<string>("");
   const [chromeThreads, setChromeThreads] = useState<string>("");
   const [chromeFolderPath, setChromeFolderPath] = useState<string>("");
+  const [language, setLanguage] = useState<AppLanguage>("uk");
   const [themeEffect, setThemeEffect] = useState<"none" | "sakura" | "rain" | "leaves" | "snow">("none");
   const [themeSnowSpeed, setThemeSnowSpeed] = useState<number>(1);
   const [themeSakuraIntensity, setThemeSakuraIntensity] = useState<number>(1);
@@ -47,6 +51,7 @@ export default function Settings() {
     telegramFolderPath: "",
     chromeThreads: "",
     chromeFolderPath: "",
+    language: "uk" as AppLanguage,
     themeEffect: "none" as "none" | "sakura" | "rain" | "leaves" | "snow",
     themeSnowSpeed: 1,
     themeSakuraIntensity: 1,
@@ -85,6 +90,7 @@ export default function Settings() {
     setTelegramFolderPath(normalizeWindowsPath(settings.telegramFolderPath || ""));
     setChromeThreads(settings.chromeThreads || "");
     setChromeFolderPath(normalizeWindowsPath(settings.chromeFolderPath || ""));
+    setLanguage(settings.language === "en" || settings.language === "ru" ? settings.language : "uk");
     setThemeEffect(normalizedThemeEffect);
     setThemeSnowSpeed(typeof settings.themeSnowSpeed === "number" ? settings.themeSnowSpeed : 1);
     setThemeSakuraIntensity(typeof settings.themeSakuraIntensity === "number" ? settings.themeSakuraIntensity : 1);
@@ -95,6 +101,7 @@ export default function Settings() {
       telegramFolderPath: normalizeWindowsPath(settings.telegramFolderPath || ""),
       chromeThreads: settings.chromeThreads || "",
       chromeFolderPath: normalizeWindowsPath(settings.chromeFolderPath || ""),
+      language: settings.language === "en" || settings.language === "ru" ? settings.language : "uk",
       themeEffect: normalizedThemeEffect,
       themeSnowSpeed: typeof settings.themeSnowSpeed === "number" ? settings.themeSnowSpeed : 1,
       themeSakuraIntensity: typeof settings.themeSakuraIntensity === "number" ? settings.themeSakuraIntensity : 1,
@@ -144,14 +151,15 @@ export default function Settings() {
     window.dispatchEvent(new CustomEvent('settingsUpdated', { detail: settings }));
     
     toast({
-      title: "Налаштування збережено",
-      description: "Ваші зміни успішно застосовані.",
+      title: t("settings.saved.title"),
+      description: t("settings.saved.description"),
     });
     setInitialSettings((prev) => ({
       telegramThreads: section === "telegram" ? telegramThreads : prev.telegramThreads,
       telegramFolderPath: section === "telegram" ? telegramFolderPath : prev.telegramFolderPath,
       chromeThreads: section === "chrome" ? chromeThreads : prev.chromeThreads,
       chromeFolderPath: section === "chrome" ? chromeFolderPath : prev.chromeFolderPath,
+      language: prev.language,
       themeEffect: prev.themeEffect,
       themeSnowSpeed: prev.themeSnowSpeed,
       themeSakuraIntensity: prev.themeSakuraIntensity,
@@ -174,6 +182,23 @@ export default function Settings() {
     setInitialSettings((prev) => ({
       ...prev,
       themeEffect: next,
+    }));
+  };
+
+  const handleLanguageChange = async (next: AppLanguage) => {
+    setLanguage(next);
+    const persisted = localStore.getSettings();
+    const settings = { ...persisted, language: next };
+    localStore.saveSettings(settings);
+    try {
+      await saveSettingsTauri(settings);
+    } catch (error) {
+      console.error("Failed to persist language settings to Tauri backend:", error);
+    }
+    window.dispatchEvent(new CustomEvent("settingsUpdated", { detail: settings }));
+    setInitialSettings((prev) => ({
+      ...prev,
+      language: next,
     }));
   };
 
@@ -439,14 +464,14 @@ export default function Settings() {
         const normalizedPath = normalizeWindowsPath(selectedPath);
         setTelegramFolderPath(normalizedPath);
         toast({
-          title: "Папку вибрано",
-          description: `Обрано папку: ${normalizedPath}`,
+          title: t("settings.folder.selected.title"),
+          description: t("settings.folder.selected.description", { path: normalizedPath }),
         });
       }
     } catch (error) {
       toast({
-        title: "Помилка вибору папки",
-        description: "Не вдалося відкрити діалог вибору папки",
+        title: t("settings.folder.error.title"),
+        description: t("settings.folder.error.description"),
         variant: "destructive",
       });
     }
@@ -459,14 +484,14 @@ export default function Settings() {
         const normalizedPath = normalizeWindowsPath(selectedPath);
         setChromeFolderPath(normalizedPath);
         toast({
-          title: "Папку вибрано",
-          description: `Обрано папку: ${normalizedPath}`,
+          title: t("settings.folder.selected.title"),
+          description: t("settings.folder.selected.description", { path: normalizedPath }),
         });
       }
     } catch (error) {
       toast({
-        title: "Помилка вибору папки",
-        description: "Не вдалося відкрити діалог вибору папки",
+        title: t("settings.folder.error.title"),
+        description: t("settings.folder.error.description"),
         variant: "destructive",
       });
     }
@@ -476,11 +501,10 @@ export default function Settings() {
     <div className="min-h-screen bg-transparent text-white overflow-y-auto">
       <main className="max-w-2xl mx-auto pt-8 lg:pt-12 px-6 pb-20">
         <div className="flex items-center gap-3 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Налаштування</h1>
-            <p className="text-muted-foreground">Керування параметрами системи</p>
-          </div>
-        </div>
+	          <div>
+	            <h1 className="text-3xl font-bold tracking-tight">{t("settings.title")}</h1>
+	          </div>
+	        </div>
 
         <div className="flex items-center gap-2 mb-6">
           <button
@@ -493,7 +517,7 @@ export default function Settings() {
                 : "text-white/60 hover:text-white hover:bg-white/5 border border-transparent"
             )}
           >
-            Налаштування
+            {t("settings.tab.general")}
           </button>
           <button
             type="button"
@@ -505,7 +529,7 @@ export default function Settings() {
                 : "text-white/60 hover:text-white hover:bg-white/5 border border-transparent"
             )}
           >
-            Теми
+            {t("settings.tab.themes")}
           </button>
         </div>
 
@@ -514,14 +538,14 @@ export default function Settings() {
             <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold">Ефект</h2>
-                  <p className="text-sm text-white/50">Візуальні ефекти фону</p>
+                  <h2 className="text-xl font-semibold">{t("settings.theme.title")}</h2>
+                  <p className="text-sm text-white/50">{t("settings.theme.description")}</p>
                 </div>
               </div>
               <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-white">Сніг</div>
+                    <div className="text-sm font-medium text-white">{t("settings.theme.snow")}</div>
                   </div>
                   <Switch
                     checked={themeEffect === "snow"}
@@ -574,7 +598,7 @@ export default function Settings() {
               <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-white">Сакура</div>
+                    <div className="text-sm font-medium text-white">{t("settings.theme.sakura")}</div>
                   </div>
                   <Switch
                     checked={themeEffect === "sakura"}
@@ -629,7 +653,7 @@ export default function Settings() {
               <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-white">Дощ</div>
+                    <div className="text-sm font-medium text-white">{t("settings.theme.rain")}</div>
                   </div>
                   <Switch
                     checked={themeEffect === "rain"}
@@ -684,7 +708,7 @@ export default function Settings() {
               <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-white">Опале листя</div>
+                    <div className="text-sm font-medium text-white">{t("settings.theme.leaves")}</div>
                   </div>
                   <Switch
                     checked={themeEffect === "leaves"}
@@ -747,11 +771,8 @@ export default function Settings() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="telegramThreads" className="text-sm font-medium text-zinc-400">
-                      Кількість потоків
+                      {t("settings.telegram.threads.label")}
                     </Label>
-                    <div className="text-xs text-zinc-500">
-                      Вкажіть кількість одночасних потоків для Telegram
-                    </div>
                     <Input
                       id="telegramThreads"
                       type="number"
@@ -767,11 +788,8 @@ export default function Settings() {
 
                   <div className="space-y-2">
                     <Label htmlFor="telegramFolderPath" className="text-sm font-medium text-zinc-400">
-                      Шлях до папки з акаунтами
+                      {t("settings.telegram.folder.label")}
                     </Label>
-                    <div className="text-xs text-zinc-500">
-                      Вкажіть повний шлях до папки з акаунтами Telegram
-                    </div>
                     <div className="flex gap-2">
                       <Input
                         id="telegramFolderPath"
@@ -803,7 +821,7 @@ export default function Settings() {
                       className="bg-gradient-to-r from-primary via-primary/90 to-primary/80 text-white px-6 py-2.5 rounded-xl transition-all shadow-[0_10px_25px_-15px_rgba(157,0,255,0.8)] hover:shadow-[0_14px_28px_-16px_rgba(157,0,255,0.95)] hover:scale-[1.01] border border-white/10"
                     >
                       <Save className="w-4 h-4 mr-2" />
-                      Зберегти
+                      {t("common.save")}
                     </Button>
                   </div>
                 )}
@@ -817,11 +835,8 @@ export default function Settings() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="chromeThreads" className="text-sm font-medium text-zinc-400">
-                      Кількість потоків
+                      {t("settings.chrome.threads.label")}
                     </Label>
-                    <div className="text-xs text-zinc-500">
-                      Вкажіть кількість одночасних потоків для Chrome
-                    </div>
                     <Input
                       id="chromeThreads"
                       type="number"
@@ -837,11 +852,8 @@ export default function Settings() {
 
                   <div className="space-y-2">
                     <Label htmlFor="chromeFolderPath" className="text-sm font-medium text-zinc-400">
-                      Шлях до папки з акаунтами
+                      {t("settings.chrome.folder.label")}
                     </Label>
-                    <div className="text-xs text-zinc-500">
-                      Вкажіть повний шлях до папки з акаунтами Chrome
-                    </div>
                     <div className="flex gap-2">
                       <Input
                         id="chromeFolderPath"
@@ -873,10 +885,35 @@ export default function Settings() {
                       className="bg-gradient-to-r from-primary via-primary/90 to-primary/80 text-white px-6 py-2.5 rounded-xl transition-all shadow-[0_10px_25px_-15px_rgba(157,0,255,0.8)] hover:shadow-[0_14px_28px_-16px_rgba(157,0,255,0.95)] hover:scale-[1.01] border border-white/10"
                     >
                       <Save className="w-4 h-4 mr-2" />
-                      Зберегти
+                      {t("common.save")}
                     </Button>
                   </div>
                 )}
+              </div>
+
+              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
+                <h2 className="text-xl font-semibold">{t("settings.language.title")}</h2>
+                <div className="space-y-2">
+                  <Select value={language} onValueChange={(value) => handleLanguageChange(value as AppLanguage)}>
+                    <SelectTrigger
+                      id="appLanguage"
+                      className="w-full bg-black/40 border-white/5 h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/20"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-black border-white/10 text-white">
+                      <SelectItem value="uk" className="focus:bg-white/10 focus:text-white">
+                        {t("settings.language.uk")}
+                      </SelectItem>
+                      <SelectItem value="en" className="focus:bg-white/10 focus:text-white">
+                        {t("settings.language.en")}
+                      </SelectItem>
+                      <SelectItem value="ru" className="focus:bg-white/10 focus:text-white">
+                        {t("settings.language.ru")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </>
           )}

@@ -1,6 +1,7 @@
 import * as React from "react";
-import { format, addDays, subDays, startOfDay, isSameDay } from "date-fns";
+import { format, addDays, startOfDay, isSameDay } from "date-fns";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 interface DatePickerStripProps {
   selectedDate?: Date;
@@ -10,22 +11,20 @@ interface DatePickerStripProps {
 
 export const DatePickerStrip = React.forwardRef<HTMLDivElement, DatePickerStripProps>(
   ({ className, selectedDate: propSelectedDate, onDateSelect, ...props }, ref) => {
+    const { language } = useI18n();
+    const tr = (uk: string, en: string, ru: string) =>
+      language === "en" ? en : language === "ru" ? ru : uk;
+
     const [selectedDate, setSelectedDate] = React.useState(propSelectedDate || new Date());
-    
-    // Generate dates for the strip (showing 5 days at a time)
     const [startIndex, setStartIndex] = React.useState(0);
-    
-    // Generate array of dates (30 days total for scrolling)
+
     const dates = React.useMemo(() => {
       const today = startOfDay(new Date());
       const dateArray = [];
-      for (let i = -10; i <= 20; i++) {
-        dateArray.push(addDays(today, i));
-      }
+      for (let i = -10; i <= 20; i++) dateArray.push(addDays(today, i));
       return dateArray;
     }, []);
 
-    // Get visible dates (5 at a time)
     const visibleDates = dates.slice(startIndex, startIndex + 5);
 
     const handleDateClick = (date: Date) => {
@@ -33,7 +32,6 @@ export const DatePickerStrip = React.forwardRef<HTMLDivElement, DatePickerStripP
       onDateSelect?.(date);
     };
 
-    // Auto-select today's date if no date is selected
     React.useEffect(() => {
       if (!propSelectedDate) {
         const today = startOfDay(new Date());
@@ -42,39 +40,28 @@ export const DatePickerStrip = React.forwardRef<HTMLDivElement, DatePickerStripP
       }
     }, [propSelectedDate, onDateSelect]);
 
-    const scrollLeft = () => {
-      setStartIndex(Math.max(0, startIndex - 1));
-    };
-
-    const scrollRight = () => {
-      setStartIndex(Math.min(dates.length - 5, startIndex + 1));
-    };
-
-    // Format day name in Ukrainian (shortened)
-    const formatDayName = (date: Date) => {
-      const dayNames = ['ÐÐ´', 'ÐŸÐ½', 'Ð’Ñ‚', 'Ð¡Ñ€', 'Ð§Ñ‚', 'ÐŸÑ‚', 'Ð¡Ð±'];
+    const dayName = (date: Date) => {
+      const dayNames = [
+        tr("Íä", "Su", "Âñ"),
+        tr("Ïí", "Mo", "Ïí"),
+        tr("Âò", "Tu", "Âò"),
+        tr("Ñð", "We", "Ñð"),
+        tr("×ò", "Th", "×ò"),
+        tr("Ïò", "Fr", "Ïò"),
+        tr("Ñá", "Sa", "Ñá"),
+      ];
       return dayNames[date.getDay()];
     };
 
     return (
-      <div
-        ref={ref}
-        className={cn(
-          "w-full bg-black/20 backdrop-blur-xl rounded-2xl p-4",
-          className
-        )}
-        {...props}
-      >
+      <div ref={ref} className={cn("w-full bg-black/20 backdrop-blur-xl rounded-2xl p-4", className)} {...props}>
         <div className="flex items-center justify-between">
-          {/* Left scroll button */}
           <button
-            onClick={scrollLeft}
+            onClick={() => setStartIndex(Math.max(0, startIndex - 1))}
             disabled={startIndex === 0}
             className={cn(
               "p-2 rounded-full transition-all duration-200 flex-shrink-0",
-              startIndex === 0 
-                ? "text-white/20 cursor-not-allowed" 
-                : "text-white/70 hover:bg-white/10"
+              startIndex === 0 ? "text-white/20 cursor-not-allowed" : "text-white/70 hover:bg-white/10"
             )}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -82,13 +69,11 @@ export const DatePickerStrip = React.forwardRef<HTMLDivElement, DatePickerStripP
             </svg>
           </button>
 
-          {/* Date capsules - perfectly centered */}
           <div className="flex-1 flex items-center justify-center min-w-0">
             <div className="flex items-center justify-center space-x-2">
               {visibleDates.map((date) => {
                 const isSelected = isSameDay(date, selectedDate);
                 const isToday = isSameDay(date, startOfDay(new Date()));
-                
                 return (
                   <button
                     key={format(date, "yyyy-MM-dd")}
@@ -102,27 +87,20 @@ export const DatePickerStrip = React.forwardRef<HTMLDivElement, DatePickerStripP
                       }
                     )}
                   >
-                    <span className="text-xs font-medium mb-0.5">
-                      {formatDayName(date)}
-                    </span>
-                    <span className="text-sm font-bold">
-                      {format(date, "d")}
-                    </span>
+                    <span className="text-xs font-medium mb-0.5">{dayName(date)}</span>
+                    <span className="text-sm font-bold">{format(date, "d")}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Right scroll button */}
           <button
-            onClick={scrollRight}
+            onClick={() => setStartIndex(Math.min(dates.length - 5, startIndex + 1))}
             disabled={startIndex >= dates.length - 5}
             className={cn(
               "p-2 rounded-full transition-all duration-200 flex-shrink-0",
-              startIndex >= dates.length - 5 
-                ? "text-white/20 cursor-not-allowed" 
-                : "text-white/70 hover:bg-white/10"
+              startIndex >= dates.length - 5 ? "text-white/20 cursor-not-allowed" : "text-white/70 hover:bg-white/10"
             )}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
