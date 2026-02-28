@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDailyTasks, useCreateDailyTask, useToggleDailyTask, useDeleteDailyTask, useUpdateDailyTask } from "@/hooks/use-dashboard";
 import { CheckSquare, Plus, Trash2, Loader2, Pencil, Clock, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,6 +23,7 @@ const MONTHS_NOMINATIVE = {
 } as const;
 
 export function DailyTasksPanel() {
+  const DAILY_WIDGET_VISIBILITY_WINDOW_MS = 24 * 60 * 60 * 1000;
   const { language } = useI18n();
   const tr = (uk: string, en: string, ru: string) =>
     language === "en" ? en : language === "ru" ? ru : uk;
@@ -60,8 +61,20 @@ export function DailyTasksPanel() {
   const [isCalendarMode, setIsCalendarMode] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date>(new Date());
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  const [isTimeInputFocused, setIsTimeInputFocused] = useState(false);
   const hourInputRef = useRef<HTMLInputElement | null>(null);
   const minuteInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowTs(Date.now());
+    }, 60000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const formatReminderDateText = (time?: number | null) => {
     if (!time) return "";
@@ -197,6 +210,15 @@ export function DailyTasksPanel() {
     return digits;
   };
 
+  const handleTimeInputBlur = () => {
+    window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      const keepFocused =
+        activeElement === hourInputRef.current || activeElement === minuteInputRef.current;
+      setIsTimeInputFocused(keepFocused);
+    }, 0);
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
@@ -219,10 +241,31 @@ export function DailyTasksPanel() {
     !!editingTaskReminderMinute.trim();
   const isReminderInvalid = reminderInputsFilled && !parsedReminder.isValid;
   const canSaveTaskEdit = !!editingTaskTitle.trim() && parsedReminder.isValid;
-  const plannedReminders = editingTaskReminders.filter(
-    (reminder) => !reminder.remindedAt && reminder.remindAt > Date.now()
-  );
-  const isEmptyState = !isLoading && (tasks?.length ?? 0) === 0;
+  const plannedScheduleItems = (tasks ?? [])
+    .flatMap((task) => {
+      const taskReminders =
+        editingTaskId === task.id
+          ? editingTaskReminders
+          : (Array.isArray(task.reminders) ? task.reminders : []);
+
+      return taskReminders
+        .filter((reminder) => !reminder.remindedAt && reminder.remindAt > nowTs)
+        .map((reminder) => ({
+          taskId: task.id,
+          taskTitle: task.title,
+          reminder,
+        }));
+    })
+    .sort((a, b) => a.reminder.remindAt - b.reminder.remindAt);
+  const visibleTasks = (tasks ?? []).filter((task) => {
+    const reminders = Array.isArray(task.reminders) ? task.reminders : [];
+    const pendingReminders = reminders.filter((reminder) => !reminder.remindedAt && reminder.remindAt > nowTs);
+    if (pendingReminders.length === 0) return true;
+
+    const nearestPendingReminderMs = Math.min(...pendingReminders.map((reminder) => reminder.remindAt - nowTs));
+    return nearestPendingReminderMs <= DAILY_WIDGET_VISIBILITY_WINDOW_MS;
+  });
+  const isEmptyState = !isLoading && visibleTasks.length === 0;
 
   const openEditTaskModal = (task: { id: number; title: string; reminders?: LocalDailyReminder[] }) => {
     const reminders = Array.isArray(task.reminders) ? task.reminders : [];
@@ -237,6 +280,7 @@ export function DailyTasksPanel() {
     setEditingTaskReminderHour("");
     setEditingTaskReminderMinute("");
     setEditingTaskRepeatRule("never");
+    setIsTimeInputFocused(false);
 
     const selectedDate = sortedReminders[0]?.remindAt ? new Date(sortedReminders[0].remindAt) : new Date();
     setCalendarSelectedDate(selectedDate);
@@ -254,6 +298,7 @@ export function DailyTasksPanel() {
     setEditingTaskReminderHour("");
     setEditingTaskReminderMinute("");
     setEditingTaskRepeatRule("never");
+    setIsTimeInputFocused(false);
     setIsCalendarMode(false);
   };
 
@@ -266,7 +311,7 @@ export function DailyTasksPanel() {
             Daily
           </h2>
           <span className="text-xs font-mono text-muted-foreground bg-white/5 px-2 py-1 rounded">
-            {tasks?.filter((t) => t.isCompleted).length || 0} / {tasks?.length || 0}
+            {visibleTasks.filter((t) => t.isCompleted).length || 0} / {visibleTasks.length || 0}
           </span>
         </div>
 
@@ -279,17 +324,16 @@ export function DailyTasksPanel() {
           >
             {isLoading ? (
               <div className="text-center py-8 text-muted-foreground text-sm">{tr("Завантаження задач...", "Loading tasks...", "Загрузка задач...")}</div>
-            ) : tasks?.length === 0 ? (
+            ) : visibleTasks.length === 0 ? (
               <div className="text-center text-muted-foreground text-sm opacity-50">{tr("Немає щоденних завдань", "No daily tasks", "Нет ежедневных задач")}</div>
             ) : (
-              tasks?.map((task) => {
+              visibleTasks.map((task) => {
                 const reminders = Array.isArray(task.reminders) ? task.reminders : [];
-                const now = Date.now();
-                const hasReminder = reminders.some((reminder) => reminder.remindAt > now && !reminder.remindedAt);
+                const hasReminder = reminders.some((reminder) => reminder.remindAt > nowTs && !reminder.remindedAt);
                 const isReminded =
                   reminders.length > 0 &&
                   reminders.every((reminder) =>
-                    reminder.remindedAt || reminder.remindAt <= now
+                    reminder.remindedAt || reminder.remindAt <= nowTs
                   );
 
                 return (
@@ -511,10 +555,18 @@ export function DailyTasksPanel() {
                         {editingTaskReminderDate || tr("Оберіть дату", "Choose date", "Выберите дату")}
                       </button>
                       <span className="text-white/70 text-sm pb-1">{tr("о", "at", "в")}</span>
-                      <div className={cn("h-10 w-[100px] shrink-0 border-b flex items-center justify-center gap-1", isReminderInvalid ? "border-red-500" : "border-white/30")}>
+                      <div
+                        className={cn("h-10 w-[100px] shrink-0 border-b flex items-center justify-center gap-1", isReminderInvalid ? "border-red-500" : "border-white/30")}
+                        onClick={() => {
+                          setIsTimeInputFocused(true);
+                          hourInputRef.current?.focus();
+                        }}
+                      >
                         <input
                           ref={hourInputRef}
                           value={editingTaskReminderHour}
+                          onFocus={() => setIsTimeInputFocused(true)}
+                          onBlur={handleTimeInputBlur}
                           onChange={(e) => {
                             const digits = e.target.value.replace(/\D/g, "").slice(0, 2);
                             if (!digits) {
@@ -543,7 +595,7 @@ export function DailyTasksPanel() {
                             minuteInputRef.current?.focus();
                           }}
                           className="w-7 bg-transparent border-0 text-center text-white placeholder:text-white/40 focus:outline-none"
-                          placeholder="21"
+                          placeholder={isTimeInputFocused ? "" : "21"}
                           inputMode="numeric"
                           autoComplete="new-password"
                         />
@@ -551,6 +603,8 @@ export function DailyTasksPanel() {
                         <input
                           ref={minuteInputRef}
                           value={editingTaskReminderMinute}
+                          onFocus={() => setIsTimeInputFocused(true)}
+                          onBlur={handleTimeInputBlur}
                           onChange={(e) => setEditingTaskReminderMinute(normalizeMinuteInput(e.target.value))}
                           onKeyDown={(e) => {
                             if (e.key === "Backspace" && editingTaskReminderMinute.length === 0) {
@@ -558,7 +612,7 @@ export function DailyTasksPanel() {
                             }
                           }}
                           className="w-7 bg-transparent border-0 text-center text-white placeholder:text-white/40 focus:outline-none"
-                          placeholder="08"
+                          placeholder={isTimeInputFocused ? "" : "08"}
                           inputMode="numeric"
                           autoComplete="new-password"
                         />
@@ -592,31 +646,31 @@ export function DailyTasksPanel() {
                       </Select>
                     </div>
 
-                    {plannedReminders.length > 0 ? (
+                    {plannedScheduleItems.length > 0 ? (
                       <div className="pt-2 space-y-2">
                         <p className="text-sm font-normal text-muted-foreground text-center">{tr("Заплановано", "Scheduled", "Запланировано")}</p>
-                        {plannedReminders
-                          .slice()
-                          .sort((a, b) => a.remindAt - b.remindAt)
-                          .map((reminder) => (
-                            <div key={reminder.id || `${reminder.remindAt}`} className="flex items-start justify-between gap-2">
+                        {plannedScheduleItems.map((item) => (
+                            <div key={`${item.taskId}-${item.reminder.id || item.reminder.remindAt}`} className="flex items-start justify-between gap-2">
                               <span className="min-w-0 flex-1 break-words text-sm text-white/85">
-                                {formatReminderDisplayText(reminder.remindAt)}
-                                {reminder.repeatRule && reminder.repeatRule !== "never"
-                                  ? ` • ${getRepeatLabel(reminder.repeatRule)}`
+                                {formatReminderDisplayText(item.reminder.remindAt)}
+                                {item.reminder.repeatRule && item.reminder.repeatRule !== "never"
+                                  ? ` • ${getRepeatLabel(item.reminder.repeatRule)}`
                                   : ""}
+                                {` — ${item.taskTitle}`}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingTaskReminders((prev) =>
-                                    prev.filter((item) => item.id !== reminder.id)
-                                  );
-                                }}
-                                className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                              >
-                                {tr("Видалити", "Delete", "Удалить")}
-                              </button>
+                              {item.taskId === editingTaskId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingTaskReminders((prev) =>
+                                      prev.filter((existingReminder) => existingReminder.id !== item.reminder.id)
+                                    );
+                                  }}
+                                  className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                                >
+                                  {tr("Видалити", "Delete", "Удалить")}
+                                </button>
+                              ) : null}
                             </div>
                           ))}
                       </div>

@@ -1,6 +1,6 @@
-﻿import * as React from "react";
-import { ChevronLeft, ChevronRight, Plus, Pencil } from "lucide-react";
-import { format, addDays, startOfDay, isSameDay, addMonths, subMonths, startOfMonth } from "date-fns";
+import * as React from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { addDays, addMonths, differenceInCalendarDays, format, isSameDay, startOfDay, startOfMonth, subMonths } from "date-fns";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -13,13 +13,16 @@ export interface GlassCalendarProps {
 
 export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps>(
   ({ className, selectedDate: propSelectedDate, onDateSelect, ...props }, ref) => {
+    const RECENTER_ON_LEAVE_THRESHOLD_DAYS = 5;
     const { language } = useI18n();
     const tr = (uk: string, en: string, ru: string) =>
       language === "en" ? en : language === "ru" ? ru : uk;
 
     const today = startOfDay(new Date());
-    const [selectedDate, setSelectedDate] = React.useState(propSelectedDate || today);
-    const [currentMonth, setCurrentMonth] = React.useState(startOfMonth(propSelectedDate || today));
+    const [selectedDate, setSelectedDate] = React.useState(startOfDay(propSelectedDate ?? today));
+    const [currentMonth, setCurrentMonth] = React.useState(startOfMonth(propSelectedDate ?? today));
+    const [isCarouselHovered, setIsCarouselHovered] = React.useState(false);
+    const carouselRef = React.useRef<HTMLDivElement | null>(null);
 
     React.useEffect(() => {
       if (!propSelectedDate) return;
@@ -28,9 +31,10 @@ export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps
     }, [propSelectedDate]);
 
     const days = React.useMemo(() => {
-      const start = addDays(startOfMonth(currentMonth), -2);
+      const center = startOfDay(selectedDate);
+      const start = addDays(center, -2);
       return Array.from({ length: 5 }, (_, i) => addDays(start, i));
-    }, [currentMonth]);
+    }, [selectedDate]);
 
     const dayName = (d: Date) => {
       const names = [
@@ -45,7 +49,7 @@ export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps
       return names[d.getDay()];
     };
 
-    const monthName = (d: Date) => {
+    const monthLabel = (d: Date) => {
       const names = [
         tr("Січень", "January", "Январь"),
         tr("Лютий", "February", "Февраль"),
@@ -60,83 +64,161 @@ export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps
         tr("Листопад", "November", "Ноябрь"),
         tr("Грудень", "December", "Декабрь"),
       ];
-      return `${names[d.getMonth()]} ${d.getFullYear()}`;
+      return names[d.getMonth()];
+    };
+
+    const shouldShowYear = (d: Date) => {
+      const currentYear = new Date().getFullYear();
+      return d.getFullYear() !== currentYear;
     };
 
     const handleDateClick = (date: Date) => {
-      setSelectedDate(date);
-      onDateSelect?.(date);
+      const normalized = startOfDay(date);
+      setSelectedDate(normalized);
+      setCurrentMonth(startOfMonth(normalized));
+      onDateSelect?.(normalized);
     };
+
+    const navigateMonth = (direction: "prev" | "next") => {
+      const nextMonth = direction === "prev" ? subMonths(currentMonth, 1) : addMonths(currentMonth, 1);
+      setCurrentMonth(nextMonth);
+      const nextSelected = startOfDay(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), selectedDate.getDate()));
+      setSelectedDate(nextSelected);
+      onDateSelect?.(nextSelected);
+    };
+
+    const shiftByWheel = React.useCallback((deltaX: number, deltaY: number) => {
+      const dominantDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+      if (dominantDelta === 0) return;
+      const nextDate = addDays(selectedDate, dominantDelta > 0 ? 1 : -1);
+      handleDateClick(nextDate);
+    }, [selectedDate]);
+
+    const maybeRecenterToToday = React.useCallback(() => {
+      const distanceDays = Math.abs(differenceInCalendarDays(selectedDate, today));
+      if (distanceDays < RECENTER_ON_LEAVE_THRESHOLD_DAYS) return;
+      setSelectedDate(today);
+      setCurrentMonth(startOfMonth(today));
+      onDateSelect?.(today);
+    }, [selectedDate, today, onDateSelect]);
+
+    const handleCarouselWheel: React.WheelEventHandler<HTMLDivElement> = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      shiftByWheel(event.deltaX, event.deltaY);
+    };
+
+    React.useEffect(() => {
+      const node = carouselRef.current;
+      if (!node) return;
+
+      const nativeWheelHandler = (event: WheelEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        shiftByWheel(event.deltaX, event.deltaY);
+      };
+
+      node.addEventListener("wheel", nativeWheelHandler, { passive: false });
+      return () => {
+        node.removeEventListener("wheel", nativeWheelHandler);
+      };
+    }, [shiftByWheel]);
+
+    React.useEffect(() => {
+      if (!isCarouselHovered) return;
+
+      const windowWheelHandler = (event: WheelEvent) => {
+        const node = carouselRef.current;
+        if (!node) return;
+        const target = event.target as Node | null;
+        if (!target || !node.contains(target)) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        shiftByWheel(event.deltaX, event.deltaY);
+      };
+
+      window.addEventListener("wheel", windowWheelHandler, { passive: false, capture: true });
+      return () => {
+        window.removeEventListener("wheel", windowWheelHandler, true);
+      };
+    }, [isCarouselHovered, shiftByWheel]);
 
     return (
       <div
         ref={ref}
         className={cn(
-          "w-full rounded-3xl p-5 shadow-2xl",
-          "bg-black/20 backdrop-blur-xl border border-white/10",
-          "text-white font-sans",
+          "w-full h-full rounded-3xl border border-white/10 bg-black/20 p-4 backdrop-blur-xl shadow-2xl text-white",
+          "flex flex-col",
           className
         )}
         {...props}
       >
-        <div className="flex items-center justify-center text-base h-4">
-          <div className="flex items-center space-x-3">
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-1 rounded-full text-white/70 transition-colors hover:bg-white/10">
-              <ChevronLeft className="h-4 w-4" />
-            </motion.button>
+        <div className="flex items-center justify-between px-1">
+          <motion.button
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.94 }}
+            onClick={() => navigateMonth("prev")}
+            className="h-7 w-7 rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <ChevronLeft className="mx-auto h-4 w-4" />
+          </motion.button>
 
-            <span className="text-xl font-display font-bold text-white min-w-[150px] text-center">
-              {monthName(currentMonth)}
-            </span>
+          <span className="text-lg font-display font-bold leading-tight text-white text-center">
+            {monthLabel(currentMonth)}
+            {shouldShowYear(currentMonth) ? (
+              <span className="ml-1.5 text-white/85">{currentMonth.getFullYear()}</span>
+            ) : null}
+          </span>
 
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-1 rounded-full text-white/70 transition-colors hover:bg-white/10">
-              <ChevronRight className="h-4 w-4" />
-            </motion.button>
-          </div>
+          <motion.button
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.94 }}
+            onClick={() => navigateMonth("next")}
+            className="h-7 w-7 rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <ChevronRight className="mx-auto h-4 w-4" />
+          </motion.button>
         </div>
 
-        <div className="flex items-center justify-center flex-1 overflow-hidden">
-          <div className="flex items-center justify-center space-x-2 mx-4 py-6" data-calendar-carousel="true">
+        <div className="flex-1 flex items-center pt-2">
+          <div
+            ref={carouselRef}
+            className="w-full grid grid-cols-5 gap-2 overscroll-contain"
+            onMouseEnter={() => {
+              setIsCarouselHovered(true);
+            }}
+            onMouseLeave={() => {
+              setIsCarouselHovered(false);
+              maybeRecenterToToday();
+            }}
+            onWheelCapture={handleCarouselWheel}
+            onWheel={handleCarouselWheel}
+          >
             {days.map((date) => {
               const isToday = isSameDay(date, today);
-              const isSelected = isSameDay(date, selectedDate);
               return (
-                <div key={`date-container-${format(date, "yyyy-MM-dd")}`} className="relative py-2">
-                  <motion.button
-                    key={format(date, "yyyy-MM-dd")}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleDateClick(date)}
-                    className={cn(
-                      "flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all duration-300 w-10 h-20 relative overflow-hidden",
-                      {
-                        "bg-gradient-to-r from-primary to-primary/80 text-white shadow-lg shadow-primary/30 scale-105": isToday || isSelected,
-                        "bg-transparent text-white/30 hover:bg-white/5 hover:text-white border border-transparent": !isToday && !isSelected,
-                      }
-                    )}
-                  >
-                    <span className="text-xs font-display font-medium uppercase tracking-wide flex-1 flex items-start justify-center -mt-1 opacity-70">
-                      {dayName(date)}
-                    </span>
-                    <span className="text-sm font-bold">{format(date, "d")}</span>
-                  </motion.button>
-                </div>
+                <motion.button
+                  key={format(date, "yyyy-MM-dd")}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => handleDateClick(date)}
+                  className={cn(
+                    "h-20 w-10 justify-self-center rounded-xl border transition-all duration-200",
+                    "flex flex-col items-center justify-between py-2",
+                    isToday
+                      ? "border-primary/70 bg-gradient-to-r from-primary to-primary/80 text-white shadow-lg shadow-primary/25"
+                      : "border-transparent bg-transparent text-white/40 hover:bg-white/5 hover:text-white"
+                  )}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-wide opacity-80 leading-none">
+                    {dayName(date)}
+                  </span>
+                  <span className="text-sm font-bold leading-none">{format(date, "d")}</span>
+                </motion.button>
               );
             })}
           </div>
-        </div>
-
-        <div className="mt-3 h-px bg-white/20" />
-
-        <div className="mt-5 flex items-center justify-between gap-2">
-          <button className="flex items-center space-x-1 text-xs font-medium text-white/70 transition-colors hover:text-white">
-            <Pencil className="h-4 w-4" />
-            <span>{tr("Додати нотатку", "Add a note", "Добавить заметку")}</span>
-          </button>
-          <button className="flex items-center space-x-1 rounded-md bg-white/5 px-2 py-0.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white whitespace-nowrap">
-            <Plus className="h-4 w-4" />
-            <span>{tr("Нова подія", "New event", "Новое событие")}</span>
-          </button>
         </div>
       </div>
     );

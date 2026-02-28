@@ -464,17 +464,33 @@ export const localStore = {
     ensureDailyReset();
     let tasks = readJson<LocalDailyTask[]>(STORAGE_KEYS.dailyTasks, []);
     if (!Array.isArray(tasks)) tasks = [];
-    return tasks.map((task) => ({
-      ...task,
-      isCompleted: Boolean(task?.isCompleted),
-      reminders: normalizeDailyReminders(task).map((reminder) => ({
+    const now = Date.now();
+    let hasChanges = false;
+    const normalizedTasks = tasks.map((task) => {
+      const reminders = normalizeDailyReminders(task).map((reminder) => ({
         ...reminder,
         repeatRule: this.normalizeRepeatRule(reminder.repeatRule),
-      })),
-      remindAt: Number.isFinite(Number(task?.remindAt)) ? Number(task?.remindAt) : null,
-      remindedAt: Number.isFinite(Number(task?.remindedAt)) ? Number(task?.remindedAt) : null,
-      repeatRule: this.normalizeRepeatRule(task?.repeatRule),
-    }));
+      }));
+      const hasFuturePendingReminder = reminders.some(
+        (reminder) => !reminder.remindedAt && reminder.remindAt > now
+      );
+      const normalizedCompleted = hasFuturePendingReminder ? false : Boolean(task?.isCompleted);
+      if (normalizedCompleted !== Boolean(task?.isCompleted)) {
+        hasChanges = true;
+      }
+      return {
+        ...task,
+        isCompleted: normalizedCompleted,
+        reminders,
+        remindAt: Number.isFinite(Number(task?.remindAt)) ? Number(task?.remindAt) : null,
+        remindedAt: Number.isFinite(Number(task?.remindedAt)) ? Number(task?.remindedAt) : null,
+        repeatRule: this.normalizeRepeatRule(task?.repeatRule),
+      };
+    });
+    if (hasChanges) {
+      this.saveDailyTasks(normalizedTasks);
+    }
+    return normalizedTasks;
   },
 
   saveDailyTasks(tasks: LocalDailyTask[]) {
@@ -556,10 +572,15 @@ export const localStore = {
             repeatRule: this.normalizeRepeatRule(reminder.repeatRule),
           }))
       : normalizeDailyReminders(prev);
+    const now = Date.now();
+    const hasFuturePendingReminder = nextReminders.some(
+      (reminder) => !reminder.remindedAt && reminder.remindAt > now
+    );
 
     tasks[index] = {
       ...prev,
       title: nextTitle,
+      isCompleted: hasFuturePendingReminder ? false : prev.isCompleted,
       reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: hasReminderPatch && nextRemindAt ? null : prev.remindedAt ?? null,
@@ -586,6 +607,7 @@ export const localStore = {
       : [];
     tasks[index] = {
       ...tasks[index],
+      isCompleted: nextRemindAt && nextRemindAt > Date.now() ? false : tasks[index].isCompleted,
       reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: nextRemindAt ? null : tasks[index].remindedAt,
@@ -609,6 +631,7 @@ export const localStore = {
     const prevReminders = normalizeDailyReminders(tasks[index]);
     tasks[index] = {
       ...tasks[index],
+      isCompleted: remindAt > Date.now() ? false : tasks[index].isCompleted,
       reminders: [...prevReminders, nextReminder],
     };
     this.saveDailyTasks(tasks);
@@ -656,6 +679,9 @@ export const localStore = {
     });
     tasks[index] = {
       ...tasks[index],
+      isCompleted: reminders.some((reminder) => !reminder.remindedAt && reminder.remindAt > Date.now())
+        ? false
+        : tasks[index].isCompleted,
       reminders,
     };
     this.saveDailyTasks(tasks);
