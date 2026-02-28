@@ -28,6 +28,7 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
   const [isAppFocused, setIsAppFocused] = useState(true);
   const closeTimerRef = useRef<number | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const [pendingUsername, setPendingUsername] = useState("");
   const normalizedUsername = pendingUsername.trim().replace(/^@+/, "");
   const isValidUsername =
@@ -68,6 +69,14 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
     };
   }, []);
 
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1280px)");
+    const sync = () => setIsNarrowViewport(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
   const handleTelegramClick = () => {
     setType("telegram");
     setLocation("/");
@@ -78,14 +87,14 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
     setLocation("/chrome");
   };
 
-  const isExpanded = isHovered;
+  const isExpanded = isHovered && !isNarrowViewport;
 
   return (
-    <div className="relative shrink-0">
-      <div className="h-screen w-16" />
+    <div className="relative h-dvh shrink-0">
+      <div className="h-dvh w-16 shrink-0" />
       <div
         className={cn(
-          "fixed left-0 top-0 z-50 h-screen bg-black border-r border-white/5 flex flex-col overflow-hidden transition-[width] duration-300 ease-smooth-sidebar",
+          "fixed left-0 top-0 z-50 h-dvh bg-black border-r border-white/5 flex flex-col overflow-hidden transition-[width] duration-300 ease-smooth-sidebar",
           isExpanded ? "w-64" : "w-16"
         )}
         onMouseEnter={() => {
@@ -313,7 +322,7 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
           )}
         </DialogContent>
       </Dialog>
-      {isExpanded ? (
+      {isExpanded && !isNarrowViewport ? (
         <div className="fixed inset-y-0 left-16 right-0 z-40 bg-black/25 backdrop-blur-sm" />
       ) : null}
     </div>

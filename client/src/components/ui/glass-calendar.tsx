@@ -128,12 +128,12 @@ export const GlassCalendar = React.forwardRef<HTMLDivElement, GlassCalendarProps
 
         <div className="mt-3 h-px bg-white/20" />
 
-        <div className="mt-5 flex items-center justify-between space-x-4">
-          <button className="flex items-center space-x-2 text-sm font-medium text-white/70 transition-colors hover:text-white">
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <button className="flex items-center space-x-1 text-xs font-medium text-white/70 transition-colors hover:text-white">
             <Pencil className="h-4 w-4" />
-            <span>{tr("Додати нотатку...", "Add a note...", "Добавить заметку...")}</span>
+            <span>{tr("Додати нотатку", "Add a note", "Добавить заметку")}</span>
           </button>
-          <button className="flex items-center space-x-2 text-sm font-medium text-white/70 transition-colors hover:text-white">
+          <button className="flex items-center space-x-1 rounded-md bg-white/5 px-2 py-0.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white whitespace-nowrap">
             <Plus className="h-4 w-4" />
             <span>{tr("Нова подія", "New event", "Новое событие")}</span>
           </button>

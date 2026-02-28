@@ -57,6 +57,35 @@ function App() {
     document.documentElement.lang = language;
   }, [language]);
 
+  useEffect(() => {
+    let hideTimer: number | null = null;
+
+    const showScrollingState = () => {
+      document.documentElement.classList.add("is-scrolling");
+      if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+      }
+      hideTimer = window.setTimeout(() => {
+        document.documentElement.classList.remove("is-scrolling");
+        hideTimer = null;
+      }, 700);
+    };
+
+    window.addEventListener("wheel", showScrollingState, { passive: true });
+    window.addEventListener("scroll", showScrollingState, { passive: true, capture: true });
+    window.addEventListener("touchmove", showScrollingState, { passive: true });
+
+    return () => {
+      window.removeEventListener("wheel", showScrollingState);
+      window.removeEventListener("scroll", showScrollingState, true);
+      window.removeEventListener("touchmove", showScrollingState);
+      if (hideTimer !== null) {
+        window.clearTimeout(hideTimer);
+      }
+      document.documentElement.classList.remove("is-scrolling");
+    };
+  }, []);
+
   const handleTelegramLogin = (username: string) => {
     const normalized = username.trim().replace(/^@+/, "");
     if (!normalized) return;
@@ -85,7 +114,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <SidebarProvider>
-          <div className="relative flex h-screen w-full overflow-hidden">
+          <div className="relative flex h-dvh min-h-0 w-full overflow-hidden">
             <ThemeEffects />
             <div className="relative z-10 flex h-full w-full">
               <Sidebar user={authUser} onTelegramLogin={handleTelegramLogin} onLogout={handleLogout} />

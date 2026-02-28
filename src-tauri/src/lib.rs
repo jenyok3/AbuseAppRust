@@ -1,6 +1,7 @@
 ﻿use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use sysinfo::System;
 use tauri::Emitter;
 use tauri::Manager;
@@ -13,6 +14,8 @@ use windows_sys::Win32::System::Console::FreeConsole;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
+
+static TELEGRAM_LAUNCH_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TelegramLink {
@@ -220,6 +223,13 @@ pub fn run() {
         tauri_plugin_autostart::MacosLauncher::LaunchAgent,
         Some(vec!["--autostart".into()]),
     ))
+    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }))
     .setup(move |app| {
         // Native tray to ensure it exists even when the webview is not loaded.
         let open_item = MenuItem::with_id(app, "open", "Відкрити", true, Option::<&str>::None)?;
@@ -306,6 +316,7 @@ pub fn run() {
       close_telegram_processes,
       close_telegram_accounts_batch,
       get_telegram_pids_for_accounts,
+      request_telegram_launch_cancel,
       close_single_account,
       get_running_telegram_processes,
       send_reminder_notification
@@ -394,6 +405,7 @@ async fn launch_accounts_batch(
 ) -> Result<Vec<u32>, String> {
     use std::process::Command;
     use rand::seq::SliceRandom;
+    TELEGRAM_LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
 
     println!("[LOG] Start batch launch for TG accounts");
     println!("[LOG] Range: {}-{}", start_range, end_range);
@@ -426,6 +438,10 @@ async fn launch_accounts_batch(
         .unwrap_or(1);
     
     for (i, &profile_num) in profiles.iter().enumerate() {
+        if TELEGRAM_LAUNCH_CANCELLED.load(Ordering::SeqCst) {
+            println!("[LOG] Launch cancelled before TG {}", profile_num);
+            break;
+        }
         if i > 0 && i % batch_size == 0 {
             println!("[LOG] Batch limit reached, returning current PID list");
             return Ok(launched_pids);
@@ -460,6 +476,11 @@ async fn launch_accounts_batch(
             } else {
                 vec![link.as_str()]
             };
+
+            if TELEGRAM_LAUNCH_CANCELLED.load(Ordering::SeqCst) {
+                println!("[LOG] Launch cancelled before deep link for TG {}", profile_num);
+                break;
+            }
             
             match Command::new(&telegram_exe_path)
                 .args(args)
@@ -496,6 +517,7 @@ async fn launch_accounts_for_profiles(
     telegram_folder_path: String,
 ) -> Result<Vec<u32>, String> {
     use std::process::Command;
+    TELEGRAM_LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
 
     println!("[LOG] Start batch launch for custom profile list");
     println!("[LOG] Profiles: {:?}", profile_ids);
@@ -510,6 +532,10 @@ async fn launch_accounts_for_profiles(
     let mut launched_pids = Vec::new();
 
     for (index, &profile_num) in profile_ids.iter().enumerate() {
+        if TELEGRAM_LAUNCH_CANCELLED.load(Ordering::SeqCst) {
+            println!("[LOG] Launch cancelled before TG {}", profile_num);
+            break;
+        }
         println!("[LOG] Launching TG {}", profile_num);
 
         let telegram_exe_path = Path::new(&telegram_folder_path)
@@ -541,6 +567,11 @@ async fn launch_accounts_for_profiles(
                 vec![link.as_str()]
             };
 
+            if TELEGRAM_LAUNCH_CANCELLED.load(Ordering::SeqCst) {
+                println!("[LOG] Launch cancelled before deep link for TG {}", profile_num);
+                break;
+            }
+
             match Command::new(&telegram_exe_path)
                 .args(args)
                 .spawn()
@@ -565,6 +596,12 @@ async fn launch_accounts_for_profiles(
     }
 
     Ok(launched_pids)
+}
+
+#[tauri::command]
+async fn request_telegram_launch_cancel() -> Result<(), String> {
+    TELEGRAM_LAUNCH_CANCELLED.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1348,6 +1385,7 @@ async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, Stri
 
     Ok(processes)
 }
+
 
 
 

@@ -446,7 +446,7 @@ export function DailyTasksPanel() {
                   <Button
                     type="button"
                     onClick={() => setIsCalendarMode(false)}
-                    className="relative left-9 h-[58px] px-9 text-[17px] bg-transparent border-0 text-white hover:bg-transparent rounded-xl transition-none shadow-none hover:shadow-none focus-visible:ring-0"
+                    className="h-11 px-4 text-base bg-transparent border-0 text-white hover:bg-transparent rounded-xl transition-none shadow-none hover:shadow-none focus-visible:ring-0"
                   >
                     {tr("Закрити", "Close", "Закрыть")}
                   </Button>
@@ -496,7 +496,7 @@ export function DailyTasksPanel() {
 
                   <div className="space-y-2">
                     <p className="text-sm font-normal text-muted-foreground">{tr("Дата й час нагадування", "Reminder date and time", "Дата и время напоминания")}</p>
-                    <div className="flex items-end justify-start gap-3">
+                    <div className="flex flex-wrap items-end justify-start gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -506,12 +506,12 @@ export function DailyTasksPanel() {
                           setCalendarMonth(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1));
                           setIsCalendarMode(true);
                         }}
-                        className="w-[170px] h-10 bg-transparent border-0 border-b border-white/30 text-center text-white/95 hover:border-white/60 transition-colors"
+                        className="w-full sm:w-[170px] h-10 bg-transparent border-0 border-b border-white/30 text-center text-white/95 hover:border-white/60 transition-colors"
                       >
                         {editingTaskReminderDate || tr("Оберіть дату", "Choose date", "Выберите дату")}
                       </button>
                       <span className="text-white/70 text-sm pb-1">{tr("о", "at", "в")}</span>
-                      <div className={cn("h-10 w-[100px] border-b flex items-center justify-center gap-1", isReminderInvalid ? "border-red-500" : "border-white/30")}>
+                      <div className={cn("h-10 w-[100px] shrink-0 border-b flex items-center justify-center gap-1", isReminderInvalid ? "border-red-500" : "border-white/30")}>
                         <input
                           ref={hourInputRef}
                           value={editingTaskReminderHour}
@@ -599,8 +599,8 @@ export function DailyTasksPanel() {
                           .slice()
                           .sort((a, b) => a.remindAt - b.remindAt)
                           .map((reminder) => (
-                            <div key={reminder.id || `${reminder.remindAt}`} className="flex items-center justify-between">
-                              <span className="text-sm text-white/85">
+                            <div key={reminder.id || `${reminder.remindAt}`} className="flex items-start justify-between gap-2">
+                              <span className="min-w-0 flex-1 break-words text-sm text-white/85">
                                 {formatReminderDisplayText(reminder.remindAt)}
                                 {reminder.repeatRule && reminder.repeatRule !== "never"
                                   ? ` • ${getRepeatLabel(reminder.repeatRule)}`
@@ -623,7 +623,7 @@ export function DailyTasksPanel() {
                     ) : null}
                   </div>
 
-                  <div className="flex gap-3 pt-2">
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
                     <Button
                       type="button"
                       onClick={closeEditTaskModal}

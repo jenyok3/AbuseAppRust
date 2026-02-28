@@ -72,7 +72,7 @@ const Day: React.FC<DayProps> = ({ classNames, day, onHover }) => {
 
 const CalendarGrid: React.FC<{ onHover: (day: string | null) => void; days: DayType[] }> = ({ onHover, days }) => {
   return (
-    <div className="grid grid-cols-7 gap-2">
+    <div className="grid grid-cols-7 gap-1 sm:gap-2">
       {days.map((day, index) => (
         <Day key={`${day.day}-${index}`} classNames={day.classNames} day={day} onHover={onHover} />
       ))}
@@ -125,7 +125,11 @@ const InteractiveCalendar = React.forwardRef<
     tr("НД", "SU", "ВС"),
   ];
 
-  const monthTitle = tr("Листопад", "November", "Ноябрь");
+  const locale = language === "en" ? "en-US" : language === "ru" ? "ru-RU" : "uk-UA";
+  const now = new Date();
+  const rawMonthTitle = new Intl.DateTimeFormat(locale, { month: "long" }).format(now);
+  const monthTitle = `${rawMonthTitle.charAt(0).toUpperCase()}${rawMonthTitle.slice(1)}`;
+  const monthYear = now.getFullYear();
 
   const sampleMeetings = [
     {
@@ -159,14 +163,14 @@ const InteractiveCalendar = React.forwardRef<
     <AnimatePresence mode="wait">
       <motion.div
         ref={ref}
-        className="relative mx-auto my-10 flex w-full flex-col items-center justify-center gap-8 lg:flex-row"
+        className="relative mx-auto my-4 sm:my-6 lg:my-10 flex w-full flex-col items-center justify-center gap-6 lg:gap-8 lg:flex-row"
         {...props}
       >
         <motion.div layout className="w-full max-w-lg">
           <motion.div key="calendar-view" className="flex w-full flex-col gap-4">
             <div className="flex w-full items-center justify-between">
               <motion.h2 className="mb-2 text-2xl font-bold tracking-tight text-white flex items-center pt-1">
-                {monthTitle} <span className="text-primary/60">2024</span>
+                {monthTitle} <span className="text-primary/60">{monthYear}</span>
               </motion.h2>
               <motion.button
                 className="relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white/80 backdrop-blur-sm transition-all hover:bg-white/10 hover:border-white/20"
@@ -184,7 +188,7 @@ const InteractiveCalendar = React.forwardRef<
               </motion.button>
             </div>
 
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {weekdays.map((day) => (
                 <div key={day} className="rounded-xl bg-card/40 backdrop-blur-sm border border-white/5 py-2 text-center text-xs font-medium text-white/60">
                   {day}
@@ -211,7 +215,7 @@ const InteractiveCalendar = React.forwardRef<
                 </p>
               </div>
 
-              <motion.div className="flex h-[620px] flex-col items-start justify-start overflow-hidden overflow-y-scroll rounded-xl border border-white/20 bg-white/5 backdrop-blur-sm shadow-md" layout>
+              <motion.div className="flex min-h-[320px] max-h-[65dvh] sm:max-h-[620px] flex-col items-start justify-start overflow-hidden overflow-y-scroll rounded-xl border border-white/20 bg-white/5 backdrop-blur-sm shadow-md" layout>
                 <AnimatePresence>
                   {sortedDays
                     .filter((day) => day.meetingInfo)

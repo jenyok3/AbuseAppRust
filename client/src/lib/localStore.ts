@@ -141,6 +141,28 @@ const DEFAULT_SETTINGS: LocalSettings = {
 };
 const LOG_RETENTION_MS = 24 * 60 * 60 * 1000;
 
+function sanitizeLogMessage(message: unknown): string {
+  const raw = typeof message === "string" ? message : String(message ?? "");
+  if (!raw) return "";
+
+  const knownFixes: Array<[RegExp, string]> = [
+    [/Ð�Ð°Ð³Ð°Ð´ÑƒÐ²Ð°Ð½Ð½Ñ�/g, "Нагадування"],
+    [/Ð�Ð°Ð¿Ð¾Ð¼Ð¸Ð½Ð°Ð½Ð¸Ðµ/g, "Напоминание"],
+  ];
+
+  let fixed = raw;
+  for (const [pattern, replacement] of knownFixes) {
+    fixed = fixed.replace(pattern, replacement);
+  }
+
+  const replacementOnlyPrefix = fixed.match(/^[\uFFFD\s]+:\s*(.+)$/);
+  if (replacementOnlyPrefix) {
+    return `Нагадування: ${replacementOnlyPrefix[1]}`;
+  }
+
+  return fixed;
+}
+
 function getLocalDateKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -671,6 +693,10 @@ export const localStore = {
     ensureDailyReset();
     let logs = readJson<LocalLog[]>(STORAGE_KEYS.logs, []);
     if (!Array.isArray(logs)) logs = [];
+    logs = logs.map((log) => ({
+      ...log,
+      message: sanitizeLogMessage(log?.message),
+    }));
     const cutoff = Date.now() - LOG_RETENTION_MS;
     const filtered = logs
       .filter(
@@ -709,9 +735,10 @@ export const localStore = {
   addLog(message: string): LocalLog {
     ensureDailyReset();
     const logs = this.getLogs();
+    const safeMessage = sanitizeLogMessage(message);
     const created: LocalLog = {
       id: nextId(logs),
-      message,
+      message: safeMessage,
       timestamp: Date.now(),
     };
     const cutoff = Date.now() - LOG_RETENTION_MS;

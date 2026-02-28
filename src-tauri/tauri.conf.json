@@ -12,13 +12,13 @@
     "windows": [
       {
         "title": "AbuseApp",
-        "width": 1400,
-        "height": 750,
+        "width": 1102,
+        "height": 716,
         "minWidth": 620,
         "minHeight": 430,
         "resizable": true,
         "fullscreen": false,
-        "center": false,
+        "center": true,
         "decorations": false,
         "visible": false,
         "transparent": false,

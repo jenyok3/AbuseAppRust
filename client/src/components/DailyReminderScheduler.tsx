@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+п»їimport { useEffect, useRef } from "react";
 import { useDailyTasks, useMarkDailyTaskReminded } from "@/hooks/use-dashboard";
 import { invoke } from "@tauri-apps/api/core";
 import { localStore, type DailyReminderRepeat } from "@/lib/localStore";
@@ -72,11 +72,12 @@ export function DailyReminderScheduler() {
           if (notifiedRef.current.has(notifyKey)) continue;
 
           let sent = false;
-          const notifyBody = tr(
-            `Нагадування: ${task.title}`,
-            `Reminder: ${task.title}`,
-            `Напоминание: ${task.title}`
+          const reminderPrefix = tr(
+            "\u041d\u0430\u0433\u0430\u0434\u0443\u0432\u0430\u043d\u043d\u044f",
+            "Reminder",
+            "\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435"
           );
+          const notifyBody = `${reminderPrefix}: ${task.title}`;
 
           try {
             await invoke("send_reminder_notification", {
@@ -141,3 +142,4 @@ export function DailyReminderScheduler() {
 
   return null;
 }
+

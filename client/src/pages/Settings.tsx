@@ -498,15 +498,15 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-transparent text-white overflow-y-auto">
-      <main className="max-w-2xl mx-auto pt-8 lg:pt-12 px-6 pb-20">
+    <div className="h-full min-h-0 bg-transparent text-white overflow-y-auto">
+      <main className="max-w-2xl mx-auto pt-6 lg:pt-10 px-4 sm:px-6 pb-16 sm:pb-20">
         <div className="flex items-center gap-3 mb-8">
 	          <div>
 	            <h1 className="text-3xl font-bold tracking-tight">{t("settings.title")}</h1>
 	          </div>
 	        </div>
 
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-6">
           <button
             type="button"
             onClick={() => setActiveTab("general")}
@@ -535,8 +535,8 @@ export default function Settings() {
 
         <div className="space-y-6">
           {activeTab === "themes" ? (
-            <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
-              <div className="flex items-center justify-between">
+            <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-5 sm:p-8 space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">{t("settings.theme.title")}</h2>
                   <p className="text-sm text-white/50">{t("settings.theme.description")}</p>
@@ -764,7 +764,7 @@ export default function Settings() {
           ) : (
             <>
               {/* Telegram Settings */}
-              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
+              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-5 sm:p-8 space-y-6">
                 <h2 className="text-xl font-semibold">
                   Telegram
                 </h2>
@@ -790,7 +790,7 @@ export default function Settings() {
                     <Label htmlFor="telegramFolderPath" className="text-sm font-medium text-zinc-400">
                       {t("settings.telegram.folder.label")}
                     </Label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Input
                         id="telegramFolderPath"
                         autoComplete="off"
@@ -828,7 +828,7 @@ export default function Settings() {
               </div>
 
               {/* Chrome Settings */}
-              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
+              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-5 sm:p-8 space-y-6">
                 <h2 className="text-xl font-semibold">
                   Chrome
                 </h2>
@@ -854,7 +854,7 @@ export default function Settings() {
                     <Label htmlFor="chromeFolderPath" className="text-sm font-medium text-zinc-400">
                       {t("settings.chrome.folder.label")}
                     </Label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Input
                         id="chromeFolderPath"
                         autoComplete="off"
@@ -891,7 +891,7 @@ export default function Settings() {
                 )}
               </div>
 
-              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-8 space-y-6">
+              <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-5 sm:p-8 space-y-6">
                 <h2 className="text-xl font-semibold">{t("settings.language.title")}</h2>
                 <div className="space-y-2">
                   <Select value={language} onValueChange={(value) => handleLanguageChange(value as AppLanguage)}>

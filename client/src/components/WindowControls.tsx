@@ -27,17 +27,17 @@ export function WindowControls() {
   };
 
   return (
-    <div className="absolute top-1/2 right-1 -translate-y-1/2 flex gap-1 z-50 pointer-events-auto app-no-drag">
+    <div className="absolute inset-y-0 right-1 flex items-center gap-1 z-50 pointer-events-auto app-no-drag">
       <button
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           minimizeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded"
+        className="w-5 h-5 flex items-center justify-center rounded-sm"
         title="Minimize"
       >
-        <Minus className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
+        <Minus strokeWidth={2.5} className="w-3 h-3 text-white/95 hover:text-white transition-colors" />
       </button>
       <button
         onClick={(e) => {
@@ -45,10 +45,10 @@ export function WindowControls() {
           e.stopPropagation();
           maximizeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded"
+        className="w-5 h-5 flex items-center justify-center rounded-sm"
         title="Maximize"
       >
-        <Square className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
+        <Square strokeWidth={2.5} className="w-3 h-3 text-white hover:text-white transition-colors" />
       </button>
       <button
         onClick={(e) => {
@@ -56,10 +56,10 @@ export function WindowControls() {
           e.stopPropagation();
           closeWindow();
         }}
-        className="w-5 h-5 flex items-center justify-center rounded"
+        className="w-5 h-5 flex items-center justify-center rounded-sm"
         title="Close"
       >
-        <X className="w-2.5 h-2.5 text-white/70 hover:text-white/90 transition-colors" />
+        <X strokeWidth={2.5} className="w-3 h-3 text-white/95 hover:text-white transition-colors" />
       </button>
     </div>
   );
