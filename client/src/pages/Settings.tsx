@@ -897,11 +897,17 @@ export default function Settings() {
                   <Select value={language} onValueChange={(value) => handleLanguageChange(value as AppLanguage)}>
                     <SelectTrigger
                       id="appLanguage"
-                      className="w-full bg-black/40 border-white/5 h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/20"
+                      className="w-full bg-black/40 border-white/5 h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/5 data-[state=open]:border-white/5"
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-black border-white/10 text-white">
+                    <SelectContent
+                      side="bottom"
+                      sideOffset={6}
+                      avoidCollisions={false}
+                      className="bg-black border-white/10 text-white max-h-40 overflow-y-auto"
+                      viewportClassName="h-auto max-h-40 w-full min-w-[var(--radix-select-trigger-width)] overflow-y-auto"
+                    >
                       <SelectItem value="uk" className="focus:bg-white/10 focus:text-white">
                         {t("settings.language.uk")}
                       </SelectItem>

@@ -30,6 +30,8 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
     ref_link: "",
   });
   const [errors, setErrors] = useState<string[]>([]);
+  const [formInstanceId, setFormInstanceId] = useState(0);
+  const [inputsUnlocked, setInputsUnlocked] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -37,6 +39,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
       setErrors([]);
       return;
     }
+
+    setFormInstanceId((prev) => prev + 1);
+    setInputsUnlocked(false);
 
     if (project && mode === "edit") {
       setFormData(project);
@@ -99,6 +104,11 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
 
   if (!isOpen) return null;
 
+  const nameFieldId = `project-name-${formInstanceId}`;
+  const linkFieldId = `project-link-${formInstanceId}`;
+  const nameFieldName = `project_name_${formInstanceId}`;
+  const linkFieldName = `project_ref_link_${formInstanceId}`;
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999]">
       <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-3xl p-8 w-full max-w-md mx-4">
@@ -116,15 +126,34 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="new-password">
+        <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off" data-lpignore="true">
+          <input
+            type="text"
+            name={`fake_username_${formInstanceId}`}
+            autoComplete="username"
+            tabIndex={-1}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <input
+            type="password"
+            name={`fake_password_${formInstanceId}`}
+            autoComplete="current-password"
+            tabIndex={-1}
+            className="hidden"
+            aria-hidden="true"
+          />
           <div className="space-y-3">
-            <Label htmlFor="name" className="text-sm font-normal text-muted-foreground">
+            <Label htmlFor={nameFieldId} className="text-sm font-normal text-muted-foreground">
               {tr("Назва проєкту", "Project name", "Название проекта")}
             </Label>
             <Input
-              id="name"
-              name="project_name"
-              autoComplete="new-password"
+              id={nameFieldId}
+              name={nameFieldName}
+              autoComplete="off"
+              readOnly={!inputsUnlocked}
+              onPointerDownCapture={() => setInputsUnlocked(true)}
+              onFocus={() => setInputsUnlocked(true)}
               value={formData.name}
               onChange={(e) => handleInputChange("name", e.target.value)}
               className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
@@ -133,13 +162,16 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
           </div>
 
           <div className="space-y-3">
-            <Label htmlFor="ref_link" className="text-sm font-normal text-muted-foreground">
+            <Label htmlFor={linkFieldId} className="text-sm font-normal text-muted-foreground">
               {tr("Посилання на проєкт", "Project link", "Ссылка на проект")}
             </Label>
             <Input
-              id="ref_link"
-              name="project_ref_link"
-              autoComplete="new-password"
+              id={linkFieldId}
+              name={linkFieldName}
+              autoComplete="off"
+              readOnly={!inputsUnlocked}
+              onPointerDownCapture={() => setInputsUnlocked(true)}
+              onFocus={() => setInputsUnlocked(true)}
               value={formData.ref_link}
               onChange={(e) => handleInputChange("ref_link", e.target.value)}
               className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"

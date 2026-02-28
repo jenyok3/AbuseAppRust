@@ -1,4 +1,22 @@
-﻿## Snapshot (2026-02-28) - Daily visibility + Calendar rebuild
+﻿## Snapshot (2026-02-28) - Daily behavior / Select UX / Windows taskbar icon
+
+### Закрито в цій сесії
+- Project modal: посилено анти-autofill для "Додати/Редагувати проєкт" (динамічні `id/name` на кожне відкриття, `autoComplete="off"`, hidden decoy-поля, `readOnly` до першого фокусу/кліку), щоб прибрати підстановку збережених значень при кліку в інпут.
+- Daily Tasks: змінено поведінку completion — майбутні reminder-и більше не видаляються при встановленні галочки.
+- Daily Tasks: прибрано примусове правило `future reminder => isCompleted: false`; тепер чекбокс можна ставити/знімати незалежно від наявності майбутніх нагадувань.
+- Daily Tasks: синхронізовано це правило у всіх шляхах оновлення (`getDailyTasks`, `updateDailyTask`, `updateDailyTaskReminder`, `addDailyTaskReminder`, `updateDailyTaskReminderEntry`), без автоскидання checked-стану.
+- Telegram / Mass launch / Project select: виправлено обрізання правого краю dropdown (`SelectContent` вирівняно від тригера, адаптивна ширина від `--radix-select-trigger-width`).
+- Telegram / Mass launch / Project select: контент елементів списку вирівняно зліва (включно з `name + ref_link`), прибрано "розліт" елементів по рядку, додано стабільний `truncate`.
+- Telegram / Mass launch / Project select: прибрано ефект підсвітки рамки trigger-поля після виходу курсора зі списку.
+- Settings / Language select: прибрано підсвітку рамки trigger-поля (аналогічно до Telegram).
+- Settings / Language select: зафіксовано відкриття dropdown донизу (`side="bottom"`, без auto-flip), додано внутрішній scroll (`max-height + overflow-y-auto`) для сценаріїв, коли знизу мало місця.
+- Windows taskbar icon: проведено діагностику (перевірено `icon.ico` і конфіг); додано явний виклик `SetCurrentProcessExplicitAppUserModelID("com.abuseapp.desktop")` на старті застосунку для стабільнішого матчингу іконки на першому запуску після інсталяції.
+- Tauri/Rust: для цього підключено `windows-sys` feature `Win32_UI_Shell`.
+
+### Перевірки
+- `npm run check` - проходить.
+- `cargo check` - проходить.
+## Snapshot (2026-02-28) - Daily visibility + Calendar rebuild
 
 ### Закрито в цій сесії
 - Daily widget: задачі з майбутніми нагадуваннями тепер ховаються з віджета, якщо до найближчого reminder більше `24h`; автоматично з’являються при вході у вікно `<=24h`.
@@ -141,6 +159,7 @@
 
 ### Перевірки
 - `npm run check` — проходить.
+
 
 
 

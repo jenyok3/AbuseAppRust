@@ -2497,18 +2497,19 @@ export default function Telegram() {
                         open={isProjectSelectOpen}
                         onOpenChange={setIsProjectSelectOpen}
                       >
-                        <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/20 text-white flex-1">
+                        <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/10 data-[state=open]:border-white/10 text-white flex-1">
                           <SelectValue placeholder={tr("Виберіть проєкт", "Select project", "Выберите проект")} />
                         </SelectTrigger>
                         <SelectContent
-                          className="bg-black border-white/10 text-white w-[min(90vw,420px)] min-w-0"
+                          align="start"
+                          className="bg-black border-white/10 text-white w-[min(90vw,var(--radix-select-trigger-width))] max-w-[90vw]"
                           onPointerLeave={() => setIsProjectSelectOpen(false)}
                         >
                           {selectedProject.startsWith("#") ? (
                             <SelectItem
                               key="__hashtag_project__"
                               value={selectedProject}
-                              className="focus:bg-white/10 focus:text-white"
+                              className="pl-2 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white"
                             >
                               {selectedProject}
                             </SelectItem>
@@ -2517,7 +2518,7 @@ export default function Telegram() {
                             <SelectItem
                               key="__none__"
                               value="__none__"
-                              className="focus:bg-white/10 focus:text-white text-muted-foreground"
+                              className="pl-2 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white text-muted-foreground"
                             >
                               {tr("Очистити вибір", "Clear selection", "Очистить выбор")}
                             </SelectItem>
@@ -2525,7 +2526,7 @@ export default function Telegram() {
                           <SelectItem 
                             key="custom" 
                             value="custom" 
-                            className="focus:bg-primary/20 focus:text-white pr-20"
+                            className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-primary/20 focus:text-white"
                           >
                             <div className="flex items-center w-full">
                               <span className="flex-1">{tr("Своє посилання", "Custom link", "Своя ссылка")}</span>
@@ -2536,12 +2537,12 @@ export default function Telegram() {
                               <SelectItem 
                                 key={name} 
                                 value={name} 
-                                className="focus:bg-primary/20 focus:text-white pr-20"
+                                className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-primary/20 focus:text-white"
                               >
-                                <div className="flex items-center w-full">
-                                  <span className="flex-1">{name}</span>
-                                  <span className="text-xs text-muted-foreground ml-2">
-                                    {link.ref_link ? link.ref_link.substring(0, 30) + "..." : ""}
+                                <div className="flex items-center w-full min-w-0 gap-2">
+                                  <span className="block max-w-[55%] truncate">{name}</span>
+                                  <span className="block max-w-[40%] truncate text-xs text-muted-foreground">
+                                    {link.ref_link || ""}
                                   </span>
                                 </div>
                               </SelectItem>

@@ -11,6 +11,8 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
 #[cfg(windows)]
 use windows_sys::Win32::System::Console::FreeConsole;
+#[cfg(windows)]
+use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -205,6 +207,14 @@ fn get_pids_for_account_dirs(account_dirs: &[String]) -> Vec<u32> {
     target_pids
 }
 
+#[cfg(windows)]
+fn set_explicit_app_user_model_id() {
+    let mut app_id: Vec<u16> = "com.abuseapp.desktop".encode_utf16().collect();
+    app_id.push(0);
+    // Improves taskbar icon identity matching on first launch after install.
+    let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+}
+
 pub fn run() {
   let is_autostart = std::env::args().any(|arg| arg == "--autostart");
 
@@ -215,6 +225,9 @@ pub fn run() {
           FreeConsole();
       }
   }
+
+  #[cfg(windows)]
+  set_explicit_app_user_model_id();
 
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
