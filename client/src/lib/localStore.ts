@@ -35,6 +35,7 @@ export type LocalDailyTask = {
   id: number;
   title: string;
   isCompleted: boolean;
+  remindedBadgeDismissed?: boolean;
   reminders?: LocalDailyReminder[];
   remindAt?: number | null;
   remindedAt?: number | null;
@@ -485,6 +486,7 @@ export const localStore = {
       return {
         ...task,
         isCompleted: normalizedCompleted,
+        remindedBadgeDismissed: Boolean(task?.remindedBadgeDismissed),
         reminders,
         remindAt: Number.isFinite(Number(task?.remindAt)) ? Number(task?.remindAt) : null,
         remindedAt: Number.isFinite(Number(task?.remindedAt)) ? Number(task?.remindedAt) : null,
@@ -516,6 +518,7 @@ export const localStore = {
       id: nextId(tasks),
       title,
       isCompleted: false,
+      remindedBadgeDismissed: false,
       reminders,
       remindAt: Number.isFinite(Number(remindAt)) ? Number(remindAt) : null,
       remindedAt: null,
@@ -531,7 +534,11 @@ export const localStore = {
     const tasks = this.getDailyTasks();
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
-    tasks[index] = { ...tasks[index], isCompleted };
+    tasks[index] = {
+      ...tasks[index],
+      isCompleted,
+      remindedBadgeDismissed: isCompleted ? true : Boolean(tasks[index].remindedBadgeDismissed),
+    };
     this.saveDailyTasks(tasks);
     return tasks[index];
   },
@@ -569,6 +576,10 @@ export const localStore = {
       ...prev,
       title: nextTitle,
       isCompleted: prev.isCompleted,
+      remindedBadgeDismissed:
+        hasReminderPatch || Array.isArray(patch.reminders)
+          ? false
+          : Boolean(prev.remindedBadgeDismissed),
       reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: hasReminderPatch && nextRemindAt ? null : prev.remindedAt ?? null,
@@ -596,6 +607,7 @@ export const localStore = {
     tasks[index] = {
       ...tasks[index],
       isCompleted: tasks[index].isCompleted,
+      remindedBadgeDismissed: false,
       reminders: nextReminders,
       remindAt: nextRemindAt,
       remindedAt: nextRemindAt ? null : tasks[index].remindedAt,
@@ -620,6 +632,7 @@ export const localStore = {
     tasks[index] = {
       ...tasks[index],
       isCompleted: tasks[index].isCompleted,
+      remindedBadgeDismissed: false,
       reminders: [...prevReminders, nextReminder],
     };
     this.saveDailyTasks(tasks);
@@ -634,6 +647,7 @@ export const localStore = {
     const nextReminders = normalizeDailyReminders(tasks[index]).filter((reminder) => reminder.id !== reminderId);
     tasks[index] = {
       ...tasks[index],
+      remindedBadgeDismissed: false,
       reminders: nextReminders,
     };
     this.saveDailyTasks(tasks);
@@ -668,6 +682,7 @@ export const localStore = {
     tasks[index] = {
       ...tasks[index],
       isCompleted: tasks[index].isCompleted,
+      remindedBadgeDismissed: false,
       reminders,
     };
     this.saveDailyTasks(tasks);

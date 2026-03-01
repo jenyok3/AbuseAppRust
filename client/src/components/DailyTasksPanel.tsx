@@ -302,9 +302,30 @@ export function DailyTasksPanel() {
     setIsCalendarMode(false);
   };
 
+  const handleDeletePlannedItem = (item: { taskId: number; reminder: LocalDailyReminder }) => {
+    if (item.taskId === editingTaskId) {
+      setEditingTaskReminders((prev) =>
+        prev.filter((existingReminder) => existingReminder.id !== item.reminder.id)
+      );
+      return;
+    }
+
+    const targetTask = (tasks ?? []).find((task) => task.id === item.taskId);
+    if (!targetTask) return;
+
+    const nextReminders = (Array.isArray(targetTask.reminders) ? targetTask.reminders : [])
+      .filter((existingReminder) => existingReminder.id !== item.reminder.id);
+
+    updateTask({
+      id: targetTask.id,
+      title: targetTask.title,
+      reminders: nextReminders,
+    });
+  };
+
   return (
     <>
-      <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col h-full w-full min-h-0">
+      <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col h-full w-full min-h-0 max-h-[min(63vh,43rem)] overflow-hidden">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-display font-bold text-white flex items-center gap-2">
             <CheckSquare className="text-primary w-5 h-5" />
@@ -315,7 +336,7 @@ export function DailyTasksPanel() {
           </span>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 overflow-y-auto -mx-2 px-2">
+        <ScrollArea className="flex-1 h-0 min-h-0 overflow-y-auto -mx-2 px-2">
           <div
             className={cn(
               "space-y-2 pb-4",
@@ -365,7 +386,7 @@ export function DailyTasksPanel() {
                         ) : null}
                       </div>
                       <div className="relative flex items-center justify-end w-[72px]">
-                        {isReminded ? (
+                        {isReminded && !task.isCompleted && !task.remindedBadgeDismissed ? (
                           <span className="absolute right-0 text-[10px] text-muted-foreground transition-opacity group-hover:opacity-0">
                             {tr("Нагадано", "Reminded", "Напомнено")}
                           </span>
@@ -649,7 +670,8 @@ export function DailyTasksPanel() {
                     {plannedScheduleItems.length > 0 ? (
                       <div className="pt-2 space-y-2">
                         <p className="text-sm font-normal text-muted-foreground text-center">{tr("Заплановано", "Scheduled", "Запланировано")}</p>
-                        {plannedScheduleItems.map((item) => (
+                        <div className="max-h-[106px] overflow-y-auto pr-1 space-y-2">
+                          {plannedScheduleItems.map((item) => (
                             <div key={`${item.taskId}-${item.reminder.id || item.reminder.remindAt}`} className="flex items-start justify-between gap-2">
                               <span className="min-w-0 flex-1 break-words text-sm text-white/85">
                                 {formatReminderDisplayText(item.reminder.remindAt)}
@@ -658,21 +680,16 @@ export function DailyTasksPanel() {
                                   : ""}
                                 {` — ${item.taskTitle}`}
                               </span>
-                              {item.taskId === editingTaskId ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingTaskReminders((prev) =>
-                                      prev.filter((existingReminder) => existingReminder.id !== item.reminder.id)
-                                    );
-                                  }}
-                                  className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                                >
-                                  {tr("Видалити", "Delete", "Удалить")}
-                                </button>
-                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePlannedItem(item)}
+                                className="h-7 px-2 rounded-md text-xs text-red-500 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                              >
+                                {tr("Видалити", "Delete", "Удалить")}
+                              </button>
                             </div>
                           ))}
+                        </div>
                       </div>
                     ) : null}
                   </div>

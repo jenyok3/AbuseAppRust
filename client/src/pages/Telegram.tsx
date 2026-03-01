@@ -3024,13 +3024,13 @@ export default function Telegram() {
             </div>
 
             {/* Right column - Calendar and Daily Tasks stacked */}
-            <div className="telegram-right-column flex flex-col gap-6 min-h-0 min-w-0 overflow-hidden">
+            <div className="telegram-right-column flex flex-col gap-6 min-h-0 min-w-0 overflow-hidden lg:h-full">
               {/* Calendar Widget */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.4 }}
-                className="h-48 flex items-center justify-center"
+                className="h-48 shrink-0 flex items-center justify-center"
               >
                 <div className="w-full h-full flex items-center justify-center">
                   <GlassCalendar 
@@ -3045,7 +3045,7 @@ export default function Telegram() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.5 }}
-                className="flex flex-col flex-1 min-h-0"
+                className="flex flex-col flex-1 h-0 min-h-0 overflow-hidden"
               >
                 <DailyTasksPanel />
               </motion.div>
@@ -3241,12 +3241,6 @@ export default function Telegram() {
                       }}
                       className="group relative bg-card/40 backdrop-blur-sm border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-all cursor-pointer"
                     >
-                      {account.effectiveStatus === accountStatus.active && (
-                        <span
-                          className="absolute right-8 top-3 h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
-                          title={tr("Активний", "Active", "Активный")}
-                        />
-                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -3265,9 +3259,41 @@ export default function Telegram() {
                           e.preventDefault();
                           e.stopPropagation();
                           if (!hasDisplayName) return;
-                          if (navigator.clipboard?.writeText) {
-                            navigator.clipboard.writeText(displayName);
+                          if (!navigator.clipboard?.writeText) {
+                            toast({
+                              title: tr("Не вдалося скопіювати", "Failed to copy", "Не удалось скопировать"),
+                              description: tr(
+                                "Буфер обміну недоступний",
+                                "Clipboard is not available",
+                                "Буфер обмена недоступен"
+                              ),
+                              variant: "destructive",
+                            });
+                            return;
                           }
+                          navigator.clipboard
+                            .writeText(displayName)
+                            .then(() => {
+                              toast({
+                                title: tr("Скопійовано", "Copied", "Скопировано"),
+                                description: tr(
+                                  `Назву "${displayName}" скопійовано`,
+                                  `Name "${displayName}" copied`,
+                                  `Название "${displayName}" скопировано`
+                                ),
+                              });
+                            })
+                            .catch(() => {
+                              toast({
+                                title: tr("Не вдалося скопіювати", "Failed to copy", "Не удалось скопировать"),
+                                description: tr(
+                                  "Спробуйте ще раз",
+                                  "Please try again",
+                                  "Попробуйте еще раз"
+                                ),
+                                variant: "destructive",
+                              });
+                            });
                         }}
                         className={`absolute right-3 top-2.5 h-5 w-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 opacity-0 pointer-events-none transition-opacity ${
                           hasDisplayName ? "group-hover:opacity-100 group-hover:pointer-events-auto" : ""
