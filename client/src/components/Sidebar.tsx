@@ -70,7 +70,7 @@ export function Sidebar({ user, onTelegramLogin, onLogout }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 1280px)");
+    const media = window.matchMedia("(max-width: 1024px)");
     const sync = () => setIsNarrowViewport(media.matches);
     sync();
     media.addEventListener("change", sync);

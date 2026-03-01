@@ -75,6 +75,16 @@ type LaunchProgressEvent = {
   };
 };
 
+// Module-level stop barrier shared across remounts to prevent stale async launch chains from restarting batches.
+let TELEGRAM_LAUNCH_STOP_UNTIL = 0;
+const markTelegramLaunchStop = (ms = 15000) => {
+  TELEGRAM_LAUNCH_STOP_UNTIL = Date.now() + ms;
+};
+const clearTelegramLaunchStop = () => {
+  TELEGRAM_LAUNCH_STOP_UNTIL = 0;
+};
+const isTelegramLaunchStopActive = () => Date.now() < TELEGRAM_LAUNCH_STOP_UNTIL;
+
 export default function Telegram() {
   const { toast } = useToast();
   const { language } = useI18n();
@@ -135,6 +145,10 @@ export default function Telegram() {
   const statsTimerRef = useRef<number | null>(null);
   const launchHydratedRef = useRef(false);
   const cancelLaunchRef = useRef(false);
+  const stopLaunchRef = useRef(false);
+  const finishingRef = useRef(false);
+  const continueInFlightRef = useRef(false);
+  const cancelRequestedAtRef = useRef(0);
   const lastLaunchProjectRef = useRef<string>("");
   const lastBatchProfileIdsRef = useRef<number[]>([]);
 
@@ -491,6 +505,7 @@ export default function Telegram() {
       setBatchSize(Number.isFinite(saved.batchSize) && saved.batchSize > 0 ? saved.batchSize : 1);
       setLaunchParams(saved.launchParams ?? null);
       setTotalProfiles(Number.isFinite(saved.totalProfiles) ? saved.totalProfiles : 0);
+      setIsLaunching(Boolean(saved.isLaunching));
       if (saved.launchMode === "project" || saved.launchMode === "plain") {
         setLaunchMode(saved.launchMode);
       } else if (!saved.launchParams && !saved.selectedProject && saved.pendingProfiles?.length) {
@@ -499,9 +514,11 @@ export default function Telegram() {
         setLaunchMode("project");
       }
       setLaunchProgressCount(
-        Number.isFinite(saved.totalProfiles)
+        Number.isFinite(saved.launchProgressCount)
+          ? Math.max(0, Number(saved.launchProgressCount))
+          : Number.isFinite(saved.totalProfiles)
           ? Math.max(0, Number(saved.totalProfiles) - (saved.pendingProfiles ? saved.pendingProfiles.length : 0))
-          : 0,
+          : 0
       );
     } else {
       setIsMix(true);
@@ -639,15 +656,17 @@ export default function Telegram() {
       startRange,
       endRange,
       isMix,
+      isLaunching,
       launchedPids,
       pendingProfiles,
       batchSize,
       launchParams,
       totalProfiles,
+      launchProgressCount,
       launchMode,
       updatedAt: Date.now(),
     });
-  }, [selectedProject, startRange, endRange, isMix, launchedPids, pendingProfiles, batchSize, launchParams, totalProfiles, launchMode]);
+  }, [selectedProject, startRange, endRange, isMix, isLaunching, launchedPids, pendingProfiles, batchSize, launchParams, totalProfiles, launchProgressCount, launchMode]);
 
   // Clear invalid selection if project list changed
   useEffect(() => {
@@ -1398,6 +1417,9 @@ export default function Telegram() {
   const displayStats = realStats;
 
   const handleLaunchByHashtagFilter = async () => {
+    stopLaunchRef.current = false;
+    cancelRequestedAtRef.current = 0;
+    clearTelegramLaunchStop();
     if (!selectedHashtagMeta?.link) return;
 
     const settings = localStore.getSettings();
@@ -1475,7 +1497,7 @@ export default function Telegram() {
       });
       const effectivePids = batchResult.effectivePids;
       const launchedCount = batchResult.launchedCount;
-      if (cancelLaunchRef.current) {
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
         return;
       }
       setLaunchedPids(effectivePids);
@@ -1522,7 +1544,7 @@ export default function Telegram() {
   useEffect(() => {
     const handleF6Pressed = () => {
       console.log('F6 custom event received, launchedPids:', launchedPids.length);
-      if (launchedPids.length > 0 || pendingProfiles.length > 0) {
+      if (!stopLaunchRef.current && !isTelegramLaunchStopActive() && (launchedPids.length > 0 || pendingProfiles.length > 0)) {
         handleContinueLaunch();
       }
     };
@@ -1532,6 +1554,9 @@ export default function Telegram() {
   }, [launchedPids, pendingProfiles]);
 
   const handleLaunch = async () => {
+    stopLaunchRef.current = false;
+    cancelRequestedAtRef.current = 0;
+    clearTelegramLaunchStop();
     cancelLaunchRef.current = false;
     if (!selectedProject) {
       toast({
@@ -1649,7 +1674,7 @@ export default function Telegram() {
       });
       const effectivePids = batchResult.effectivePids;
       const launchedCount = batchResult.launchedCount;
-      if (cancelLaunchRef.current) {
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
         return;
       }
       setLaunchedPids(effectivePids);
@@ -1704,7 +1729,7 @@ export default function Telegram() {
   ) => {
     const launched: number[] = [];
     for (let i = 0; i < profileIds.length; i += 1) {
-      if (cancelLaunchRef.current) {
+      if (cancelLaunchRef.current || stopLaunchRef.current || finishingRef.current || isTelegramLaunchStopActive()) {
         break;
       }
       try {
@@ -1715,7 +1740,7 @@ export default function Telegram() {
       } catch (error) {
         console.warn("Failed to launch account:", profileIds[i], error);
       }
-      if (!cancelLaunchRef.current && countProgress) {
+      if (!cancelLaunchRef.current && !stopLaunchRef.current && !finishingRef.current && !isTelegramLaunchStopActive() && countProgress) {
         setLaunchProgressCount((prev) => {
           const next = baseCount + i + 1;
           return next > prev ? next : prev;
@@ -1738,6 +1763,54 @@ export default function Telegram() {
     params: TelegramLaunchParams | null;
     baseCount: number;
   }): Promise<{ effectivePids: number[]; launchedCount: number }> => {
+    const shouldAbort = () => {
+      const cancelCooldownActive = cancelRequestedAtRef.current > 0 && (Date.now() - cancelRequestedAtRef.current) < 8000;
+      return finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current || cancelCooldownActive || isTelegramLaunchStopActive();
+    };
+    const closeBatchProcesses = async (seedPids: number[] = []) => {
+      try {
+        let pidsToClose = [...seedPids];
+        try {
+          const mapped = await getTelegramPidsForAccounts(profileIds);
+          if (mapped.length > 0) {
+            pidsToClose = [...pidsToClose, ...mapped];
+          }
+        } catch (error) {
+          console.warn("Failed to resolve batch PIDs during abort close:", error);
+        }
+
+        const folderPathLc = (telegramFolderPath || "").toLowerCase();
+        try {
+          const running = await getRunningTelegramProcesses() as TelegramProcess[];
+          const fallback = running
+            .filter((process) => {
+              const pid = Number(process?.pid);
+              if (!Number.isFinite(pid)) return false;
+              if (!folderPathLc) return true;
+              const processPath = String(process?.path ?? "").toLowerCase();
+              return processPath.includes(folderPathLc);
+            })
+            .map((process) => Number(process.pid))
+            .filter((pid) => Number.isFinite(pid));
+          pidsToClose = [...pidsToClose, ...fallback];
+        } catch (error) {
+          console.warn("Failed to collect running PIDs during abort close:", error);
+        }
+
+        const unique = Array.from(new Set(pidsToClose));
+        if (unique.length > 0) {
+          await closeTelegramProcesses(unique);
+        }
+      } catch (error) {
+        console.warn("Failed to close batch processes during abort:", error);
+      }
+    };
+
+    if (shouldAbort()) {
+      await closeBatchProcesses();
+      return { effectivePids: [], launchedCount: 0 };
+    }
+
     let pids: number[] = [];
 
     if (mode === "plain") {
@@ -1749,21 +1822,28 @@ export default function Telegram() {
       pids = await launchAccountsForProfiles(params, profileIds, telegramFolderPath) as number[];
     }
 
-    if (cancelLaunchRef.current) {
-      if (pids.length > 0) {
-        await closeTelegramProcesses(pids);
-      }
+    if (shouldAbort()) {
+      await closeBatchProcesses(pids);
       return { effectivePids: [], launchedCount: 0 };
     }
 
     await waitMs(QUICK_RETRY_DELAY_MS);
-    if (cancelLaunchRef.current) {
+    if (shouldAbort()) {
+      await closeBatchProcesses(pids);
       return { effectivePids: [], launchedCount: 0 };
     }
 
     const missingProfiles = await getMissingProfilesForBatch(profileIds);
+    if (shouldAbort()) {
+      await closeBatchProcesses(pids);
+      return { effectivePids: [], launchedCount: 0 };
+    }
     if (missingProfiles.length > 0) {
       try {
+        if (shouldAbort()) {
+          await closeBatchProcesses(pids);
+          return { effectivePids: [], launchedCount: 0 };
+        }
         if (mode === "plain") {
           await launchPlainProfiles(missingProfiles, baseCount, telegramFolderPath, false);
         } else if (params) {
@@ -1773,6 +1853,10 @@ export default function Telegram() {
         console.warn("Quick retry failed for batch:", error);
       }
       await waitMs(1800);
+      if (shouldAbort()) {
+        await closeBatchProcesses(pids);
+        return { effectivePids: [], launchedCount: 0 };
+      }
     }
 
     let effectivePids = pids;
@@ -1789,6 +1873,7 @@ export default function Telegram() {
   };
 
   const handleLaunchAllAccounts = async () => {
+    clearTelegramLaunchStop();
     const settings = localStore.getSettings();
     if (!settings.telegramFolderPath) {
       toast({
@@ -1842,7 +1927,7 @@ export default function Telegram() {
       });
       const effectivePids = batchResult.effectivePids;
       const launchedCount = batchResult.launchedCount;
-      if (cancelLaunchRef.current) {
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
         return;
       }
       setLaunchedPids(effectivePids);
@@ -2127,6 +2212,12 @@ export default function Telegram() {
 
   // Function to continue batch launch (simulate F6 press)
   const handleContinueLaunch = async () => {
+    const cancelCooldownActive = cancelRequestedAtRef.current > 0 && (Date.now() - cancelRequestedAtRef.current) < 8000;
+    if (continueInFlightRef.current || finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current || cancelCooldownActive || isTelegramLaunchStopActive()) {
+      return;
+    }
+    continueInFlightRef.current = true;
+    stopLaunchRef.current = false;
     cancelLaunchRef.current = false;
     try {
       const hasNext = pendingProfiles.length > 0;
@@ -2167,6 +2258,10 @@ export default function Telegram() {
         setLaunchedPids([]);
       }
 
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
+        return;
+      }
+
       if (!hasNext) {
         const activeProjectName = lastLaunchProjectRef.current || launchParams?.app_name || selectedProject || "";
         setPendingProfiles([]);
@@ -2198,6 +2293,10 @@ export default function Telegram() {
         } else {
           logAction(tr("Завершено запуск", "Launch finished", "Запуск завершен"));
         }
+        return;
+      }
+
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
         return;
       }
 
@@ -2296,7 +2395,7 @@ export default function Telegram() {
         });
       }
 
-      if (cancelLaunchRef.current) {
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
         return;
       }
 
@@ -2306,6 +2405,10 @@ export default function Telegram() {
       setPendingProfiles(remaining);
       setLaunchProgressCount((prev) => Math.max(prev, baseCount + nextBatch.length));
       lastBatchProfileIdsRef.current = nextBatch;
+
+      if (finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current) {
+        return;
+      }
 
       toast({
         title: tr("Продовження запуску", "Launch continuation", "Продолжение запуска"),
@@ -2327,17 +2430,26 @@ export default function Telegram() {
         variant: "destructive",
       });
     } finally {
+      continueInFlightRef.current = false;
       setIsLaunching(false);
     }
   };
 
   const handleCloseAllOpenedAccounts = async () => {
+    markTelegramLaunchStop();
+    cancelRequestedAtRef.current = Date.now();
+    finishingRef.current = true;
+    stopLaunchRef.current = true;
     cancelLaunchRef.current = true;
+    setIsLaunching(false);
     try {
       await requestTelegramLaunchCancel();
     } catch (error) {
       console.warn("Failed to request launch cancel:", error);
     }
+    const settings = localStore.getSettings();
+    const folderPathLc = (settings.telegramFolderPath || "").toLowerCase();
+
     const pids = Array.from(new Set([
       ...Array.from(openAccounts.values()),
       ...launchedPids,
@@ -2345,6 +2457,7 @@ export default function Telegram() {
     const accountIds = Array.from(new Set([
       ...Array.from(openAccounts.keys()),
       ...lastBatchProfileIdsRef.current,
+      ...pendingProfiles,
     ]));
     const activeProjectName = lastLaunchProjectRef.current || launchParams?.app_name || selectedProject || "";
 
@@ -2367,8 +2480,27 @@ export default function Telegram() {
     }
 
     try {
-      if (pids.length > 0) {
-        await closeTelegramProcesses(pids);
+      let fallbackRunningPids: number[] = [];
+      try {
+        const running = await getRunningTelegramProcesses() as TelegramProcess[];
+        fallbackRunningPids = running
+          .filter((process) => {
+            const pid = Number(process?.pid);
+            if (!Number.isFinite(pid)) return false;
+            if (!folderPathLc) return true;
+            const processPath = String(process?.path ?? "").toLowerCase();
+            return processPath.includes(folderPathLc);
+          })
+          .map((process) => Number(process.pid))
+          .filter((pid, index, arr) => Number.isFinite(pid) && arr.indexOf(pid) === index);
+      } catch (error) {
+        console.warn("Failed to collect running Telegram PIDs for fallback close:", error);
+      }
+
+      const finalPids = Array.from(new Set([...pids, ...fallbackRunningPids]));
+
+      if (finalPids.length > 0) {
+        await closeTelegramProcesses(finalPids);
       }
       if (accountIds.length > 0) {
         try {
@@ -2377,6 +2509,38 @@ export default function Telegram() {
           console.warn("Failed to close accounts batch:", error);
         }
       }
+
+      // Safety sweep: if a continue action was already in-flight, new processes may appear shortly after first close.
+      const performFallbackSweep = async () => {
+        try {
+          const running = await getRunningTelegramProcesses() as TelegramProcess[];
+          const sweepPids = running
+            .filter((process) => {
+              const pid = Number(process?.pid);
+              if (!Number.isFinite(pid)) return false;
+              if (!folderPathLc) return true;
+              const processPath = String(process?.path ?? "").toLowerCase();
+              return processPath.includes(folderPathLc);
+            })
+            .map((process) => Number(process.pid))
+            .filter((pid, index, arr) => Number.isFinite(pid) && arr.indexOf(pid) === index);
+          if (sweepPids.length > 0) {
+            await closeTelegramProcesses(sweepPids);
+          }
+          return sweepPids.length;
+        } catch (error) {
+          console.warn("Fallback close sweep failed:", error);
+          return 0;
+        }
+      };
+
+      if (continueInFlightRef.current) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+      await performFallbackSweep();
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      await performFallbackSweep();
+
       setOpenAccounts(new Map());
       setLaunchedPids([]);
       setPendingProfiles([]);
@@ -2394,11 +2558,11 @@ export default function Telegram() {
       await loadRealStats();
 
       toast({
-        title: pids.length > 0
+        title: (pids.length > 0 || fallbackRunningPids.length > 0)
           ? tr("Усі акаунти закрито", "All accounts are closed", "Все аккаунты закрыты")
           : tr("Запуск зупинено", "Launch stopped", "Запуск остановлен"),
-        description: pids.length > 0
-          ? tr(`Завершено ${pids.length} процесів`, `Closed ${pids.length} processes`, `Завершено ${pids.length} процессов`)
+        description: (pids.length > 0 || fallbackRunningPids.length > 0)
+          ? tr(`Завершено ${finalPids.length} процесів`, `Closed ${finalPids.length} processes`, `Завершено ${finalPids.length} процессов`)
           : tr("Черга запуску очищена", "Launch queue cleared", "Очередь запуска очищена"),
       });
       if (activeProjectName) {
@@ -2417,20 +2581,23 @@ export default function Telegram() {
         ),
         variant: "destructive",
       });
+    } finally {
+      finishingRef.current = false;
     }
   };
 
-  const isBatchActive =
-    (isLaunching && totalProfiles > 0) ||
-    launchedPids.length > 0 ||
-    pendingProfiles.length > 0;
   const totalProfilesCount = totalProfiles > 0 ? totalProfiles : (pendingProfiles.length + launchedPids.length);
   const launchedCount = totalProfilesCount > 0 ? Math.min(totalProfilesCount, Math.max(0, launchProgressCount)) : 0;
+  const isBatchActive =
+    (isLaunching && totalProfilesCount > 0) ||
+    launchedPids.length > 0 ||
+    pendingProfiles.length > 0 ||
+    (launchProgressCount > 0 && totalProfilesCount > 0);
   const progressValue = totalProfilesCount > 0 ? Math.round((launchedCount / totalProfilesCount) * 100) : 0;
   const segmentCount = totalProfilesCount > 0 ? Math.min(36, totalProfilesCount) : 36;
 
   const hasClosableAccounts = openAccounts.size > 0 || launchedPids.length > 0 || pendingProfiles.length > 0;
-  const canContinueBatch = !isLaunching && pendingProfiles.length > 0;
+  const canContinueBatch = !isLaunching && !finishingRef.current && pendingProfiles.length > 0;
   const batchActionLabel = canContinueBatch
     ? tr("Продовжити", "Continue", "Продолжить")
     : tr("Завершити", "Finish", "Завершить");

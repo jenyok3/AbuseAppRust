@@ -1,17 +1,24 @@
-import InteractiveCalendar from "@/components/ui/visualize-booking";
+﻿import { useEffect } from "react";
 
 export default function Calendar() {
-  return (
-    <div className="flex-1 min-h-0 overflow-hidden relative font-body text-white">
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]" />
-      </div>
+  useEffect(() => {
+    document.body.style.backgroundColor = "#000000";
+    document.body.style.backgroundImage = "none";
+    document.body.style.background = "#000000";
 
-      <main className="relative z-10 h-full overflow-y-auto smooth-scroll custom-scrollbar px-3 sm:px-6 lg:px-8">
-        <div className="mx-auto w-full max-w-6xl py-4 lg:py-6">
-          <InteractiveCalendar />
-        </div>
-      </main>
+    return () => {
+      document.body.style.backgroundColor = "";
+      document.body.style.backgroundImage = "";
+      document.body.style.background = "";
+    };
+  }, []);
+
+  return (
+    <div className="h-full min-h-0 bg-transparent text-white flex items-center justify-center px-4">
+      <div className="text-center max-w-xl">
+        <h1 className="text-3xl sm:text-4xl font-bold text-white/80 mb-4">Календар</h1>
+        <p className="text-white/60">Сторінка знаходиться в процесі розробки</p>
+      </div>
     </div>
   );
 }

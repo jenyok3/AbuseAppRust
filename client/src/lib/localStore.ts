@@ -103,11 +103,13 @@ export type TelegramLaunchState = {
   startRange: string;
   endRange: string;
   isMix: boolean;
+  isLaunching?: boolean;
   launchedPids: number[];
   pendingProfiles: number[];
   batchSize: number;
   launchParams: TelegramLaunchParams | null;
   totalProfiles: number;
+  launchProgressCount?: number;
   launchMode?: "project" | "plain" | null;
   updatedAt: number;
 };
@@ -155,11 +157,17 @@ function sanitizeLogMessage(message: unknown): string {
     fixed = fixed.replace(pattern, replacement);
   }
 
+  const replacementOnly = fixed.match(/^[\uFFFD\s]+$/);
+  if (replacementOnly) {
+    return "";
+  }
+
   const replacementOnlyPrefix = fixed.match(/^[\uFFFD\s]+:\s*(.+)$/);
   if (replacementOnlyPrefix) {
     return `Нагадування: ${replacementOnlyPrefix[1]}`;
   }
 
+  fixed = fixed.replace(/\uFFFD{2,}/g, " ").trim();
   return fixed;
 }
 
@@ -823,6 +831,14 @@ export const localStore = {
       batchSize: Number.isFinite(Number(state.batchSize)) ? Number(state.batchSize) : 1,
       launchParams: state.launchParams ?? null,
       totalProfiles: Number.isFinite(Number(state.totalProfiles)) ? Number(state.totalProfiles) : 0,
+      launchProgressCount: Number.isFinite(Number(state.launchProgressCount))
+        ? Number(state.launchProgressCount)
+        : 0,
+      isLaunching: Boolean(state.isLaunching),
+      launchMode:
+        state.launchMode === "project" || state.launchMode === "plain"
+          ? state.launchMode
+          : null,
       updatedAt: Number(state.updatedAt ?? Date.now()),
     };
   },

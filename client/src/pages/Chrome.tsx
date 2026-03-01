@@ -18,7 +18,7 @@ export default function Chrome() {
   return (
     <div className="h-full min-h-0 bg-transparent text-white flex items-center justify-center px-4">
       <div className="text-center max-w-xl">
-        <h1 className="text-3xl sm:text-4xl font-bold text-white/80 mb-4">{t("chrome.title")}</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-white/80 mb-4">Chrome</h1>
         <p className="text-white/60">{t("chrome.description")}</p>
       </div>
     </div>

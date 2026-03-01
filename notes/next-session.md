@@ -1,4 +1,26 @@
-﻿## Snapshot (2026-02-28) - Daily behavior / Select UX / Windows taskbar icon
+﻿## Snapshot (2026-03-01) - Calendar page (full-screen UX + Daily planned badges)
+
+### Закрито в цій сесії
+- Calendar page: прибрано toggle-кнопку режимів і повністю видалено блок "Зустрічі"; залишено лише календарну сітку.
+- Calendar layout: перероблено на full-page сценарій (ширина на весь контейнер), повернуто вертикальний скрол сторінки, додано sticky-шапку (місяць + дні тижня).
+- Calendar month grid: замінено технічні `+/-` клітинки на реальні дні попереднього/поточного/наступного місяця з тьмяним стилем для неактивних днів.
+- Daily integration: кульки в календарі тепер беруться з реальних Daily reminders (логіка як у "Заплановано"): враховуються тільки `!remindedAt` і `remindAt > now`; підрахунок агрегується по даті.
+- Calendar header: у заголовку залишено лише назву місяця (без року).
+- Calendar visuals: повернуто фіолетовий фон сторінки (deco blur-шар).
+- Badge UX: прибрано проблемну анімацію "телепорту/тряски"; залишено м’яку анімацію переміщення бейджа з кута в центр при hover, без контурної підсвітки.
+- Badge positioning: підкориговано відступ від кута в неактивному стані (`right/bottom`), щоб не налазило на скруглення.
+- Encoding: виправлено UTF-8 для календарних файлів після тимчасових артефактів `��`.
+- Local logs sanitize: посилено очистку зламаних символів `\uFFFD` у `localStore.sanitizeLogMessage`.
+- Telegram / Mass launch stop: посилено логіку "Завершити" після навігації між сторінками (Settings <-> Telegram) — додано `stop/cancel/finishing` guard-и, mutex для `Continue`, fallback-закриття PID-ів по запущених процесах у межах `telegramFolderPath`, multi-sweep після cancel.
+- Telegram / Mass launch stop: додано module-level "stop barrier" (тайм-аутний глобальний блок) для захисту від повторного запуску батчу зі старих async-ланцюжків після remount сторінки.
+- Telegram / Progress restore: розширено персист/рестор `telegramLaunch`-стану (`isLaunching`, `launchProgressCount`, `launchMode`) для стабільного відновлення прогрес-бара після переходів між сторінками.
+- Sidebar UX: виправлено нерозгортання сайдбара на desktop — поріг narrow viewport змінено з `1280px` на `1024px`.
+- Calendar page (temporary): замість інтерактивного календаря встановлено чорну заглушку "Сторінка знаходиться в процесі розробки" у стилі сторінки Chrome.
+- Chrome page (temporary text): заголовок встановлено як `Chrome`, підпис повернуто з i18n (`t("chrome.description")`).
+
+### Перевірки
+- `npm run check` - проходить.
+## Snapshot (2026-02-28) - Daily behavior / Select UX / Windows taskbar icon
 
 ### Закрито в цій сесії
 - Project modal: посилено анти-autofill для "Додати/Редагувати проєкт" (динамічні `id/name` на кожне відкриття, `autoComplete="off"`, hidden decoy-поля, `readOnly` до першого фокусу/кліку), щоб прибрати підстановку збережених значень при кліку в інпут.
@@ -159,6 +181,7 @@
 
 ### Перевірки
 - `npm run check` — проходить.
+
 
 
 
