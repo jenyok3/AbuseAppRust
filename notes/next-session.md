@@ -18,6 +18,9 @@
 - Calendar page (temporary): замість інтерактивного календаря встановлено чорну заглушку "Сторінка знаходиться в процесі розробки" у стилі сторінки Chrome.
 - Chrome page (temporary text): заголовок встановлено як `Chrome`, підпис повернуто з i18n (`t("chrome.description")`).
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` - проходить.
 ## Snapshot (2026-02-28) - Daily behavior / Select UX / Windows taskbar icon
@@ -35,6 +38,9 @@
 - Windows taskbar icon: проведено діагностику (перевірено `icon.ico` і конфіг); додано явний виклик `SetCurrentProcessExplicitAppUserModelID("com.abuseapp.desktop")` на старті застосунку для стабільнішого матчингу іконки на першому запуску після інсталяції.
 - Tauri/Rust: для цього підключено `windows-sys` feature `Win32_UI_Shell`.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` - проходить.
 - `cargo check` - проходить.
@@ -51,6 +57,9 @@
 - Calendar header: рік у заголовку показується тільки для непоточного року; між місяцем і роком додано контрольований відступ.
 - Encoding fix: повторно виправлено зламані кириличні підписи в календарі (`Р...` -> нормальний UTF-8 текст для `uk/ru`).
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` - проходить.
 ## Snapshot (2026-02-28) - launch stability / tray / logs
@@ -63,6 +72,9 @@
 - Tauri/Tray: додано `tauri-plugin-single-instance`; повторний запуск із ярлика тепер фокусує існуючий інстанс замість створення другого процесу/другої іконки в треї.
 - Telegram launch reliability: реалізовано `health-check + 1 quick retry` після кожного батчу (у т.ч. перший батч і продовження по F6) для профілів, що "відпали" одразу після старту.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` - проходить.
 - `cargo check` - проходить.
@@ -77,6 +89,9 @@
 - Calendar widget: зроблено компактні кнопки без крапок і щільними падінгами (`text-xs`, `px-2 py-0.5`), плюс дерево дивиться одразу під чолкою без зайвих відступів.
 - Window controls: однаковий розмір/сontrast, один strokeWidth, прибране субпіксельне `translate`, стартове вікно `1102x716` відцентровано.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 ## Snapshot (2026-02-27) — i18n/Settings UI polishing
@@ -91,6 +106,9 @@
 - Settings/UI: прибрано допоміжні описи для полів Telegram/Chrome (про потоки та шляхи до папок).
 - Settings/UI: прибрано підзаголовок сторінки `Керування параметрами системи`.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -110,6 +128,9 @@
 - UI: прибрано `bg-black` та inline `backgroundColor` з основних сторінок (Telegram/Settings/Chrome/NotFound), фон перенесено на `body` в App.
 - Dev: прибрано залежності `tsparticles` і `@tsparticles/react`.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -123,6 +144,9 @@
 - Themes: інтегровано tsParticles (Winter/Spring/Summer/Autumn), увімкнено перемикачі сезонів у налаштуваннях, виправлено ініціалізацію через `initParticlesEngine` та фіксований контейнер.
 - Dev: після оновлення Node до 25.6.1 перебудовано `better-sqlite3`; у `server/index.ts` прибрано `reusePort` і змінено host на `127.0.0.1` для Windows.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -138,6 +162,9 @@
 - Картки акаунтів у Telegram: показ нумерації 1..N, hover-підміна на `account.name`, кнопка копіювання назви з’являється при наведенні.
 - Виправлено кодування `notes/next-session.md` (UTF-8).
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -161,6 +188,9 @@
   - `src-tauri/target/release/bundle/nsis/AbuseApp_1.0.2_x64-setup.exe`
   - `src-tauri/target/release/bundle/msi/AbuseApp_1.0.2_x64_en-US.msi`
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `cargo check` — проходить.
 - `npm run check` — проходить.
@@ -179,8 +209,12 @@
 - Telegram UI: хрестик видалення хештегу показується лише при наведенні на сам хештег.
 - Telegram UI: плейсхолдер пошуку змінено на “Пошук”; лупа ховається при фокусі, відступ зліва прибирається під час вводу.
 
+- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
+- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
+- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
+
 
 
 

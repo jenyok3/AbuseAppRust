@@ -2623,6 +2623,64 @@ export default function Telegram() {
     batchActiveRef.current = isActiveNow;
   }, [isBatchActive, openAccounts, launchMode]);
 
+  // Auto-reset stale batch UI if user manually closed all Telegram windows outside the app.
+  useEffect(() => {
+    if (isLaunching || finishingRef.current || continueInFlightRef.current) return;
+    const hasBatchMarkers =
+      pendingProfiles.length > 0 ||
+      launchedPids.length > 0 ||
+      openAccounts.size > 0 ||
+      Boolean(launchMode) ||
+      totalProfiles > 0 ||
+      launchProgressCount > 0;
+    if (!hasBatchMarkers) return;
+
+    let disposed = false;
+    const tryResetIfNoRunning = async () => {
+      try {
+        const settings = localStore.getSettings();
+        const folderPathLc = (settings.telegramFolderPath || "").toLowerCase();
+        const running = await getRunningTelegramProcesses() as TelegramProcess[];
+        const hasRelevantRunning = running.some((process) => {
+          const pid = Number(process?.pid);
+          if (!Number.isFinite(pid)) return false;
+          if (!folderPathLc) return true;
+          const processPath = String(process?.path ?? "").toLowerCase();
+          return processPath.includes(folderPathLc);
+        });
+        if (disposed || hasRelevantRunning) return;
+
+        setOpenAccounts(new Map());
+        setPendingProfiles([]);
+        setLaunchedPids([]);
+        setSelectedProject("");
+        setStartRange("");
+        setEndRange("");
+        setLaunchParams(null);
+        setLaunchMode(null);
+        setBatchSize(1);
+        setTotalProfiles(0);
+        setLaunchProgressCount(0);
+        setIsLaunching(false);
+        lastBatchProfileIdsRef.current = [];
+        localStore.clearTelegramLaunchState();
+      } catch (error) {
+        console.warn("Failed to auto-reset stale launch UI after manual close:", error);
+      }
+    };
+
+    // Run immediately and then poll while batch markers exist.
+    void tryResetIfNoRunning();
+    const intervalId = window.setInterval(() => {
+      void tryResetIfNoRunning();
+    }, 1500);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isLaunching, pendingProfiles, launchedPids, openAccounts, launchMode, totalProfiles, launchProgressCount]);
+
   return (
     <div className="h-full min-h-0 bg-transparent text-white flex flex-col overflow-hidden">
       {/* Ambient background effects - removed for pure black background */}
