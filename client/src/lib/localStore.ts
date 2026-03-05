@@ -42,6 +42,8 @@ export type LocalDailyTask = {
   repeatRule?: DailyReminderRepeat;
 };
 
+export type DailyTaskScope = "telegram" | "chrome";
+
 export type LocalDailyReminder = {
   id: string;
   remindAt: number;
@@ -73,9 +75,12 @@ export type LocalHashtagMeta = {
 export type LocalSettings = {
   telegramThreads: string;
   telegramFolderPath: string;
+  telegramLaunchSpeed?: "fast" | "balanced" | "conservative";
   chromeThreads: string;
   chromeFolderPath: string;
   language?: "uk" | "en" | "ru";
+  languageManuallySet?: boolean;
+  languageAutoDetected?: boolean;
   themeEffect?: "none" | "sakura" | "rain" | "leaves" | "snow";
   themeSnowSpeed?: number;
   themeSakuraIntensity?: number;
@@ -120,6 +125,7 @@ const STORAGE_KEYS = {
   accounts: "abuseapp.accounts",
   accountMeta: "abuseapp.accountMeta",
   dailyTasks: "abuseapp.dailyTasks",
+  dailyTasksChrome: "abuseapp.dailyTasks.chrome",
   logs: "abuseapp.logs",
   dailyResetDate: "abuseapp.dailyResetDate",
   hashtagMeta: "abuseapp.hashtagMeta",
@@ -133,9 +139,12 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS: LocalSettings = {
   telegramThreads: "1",
   telegramFolderPath: "",
+  telegramLaunchSpeed: "conservative",
   chromeThreads: "1",
   chromeFolderPath: "",
   language: "uk",
+  languageManuallySet: false,
+  languageAutoDetected: false,
   themeEffect: "none",
   themeSnowSpeed: 1,
   themeSakuraIntensity: 1,
@@ -185,14 +194,18 @@ function ensureDailyReset() {
   const lastReset = readJson<string>(STORAGE_KEYS.dailyResetDate, "");
   if (lastReset === todayKey) return;
 
-  const tasks = readJson<LocalDailyTask[]>(STORAGE_KEYS.dailyTasks, []);
-  if (Array.isArray(tasks)) {
+  const resetTasksByKey = (storageKey: string) => {
+    const tasks = readJson<LocalDailyTask[]>(storageKey, []);
+    if (!Array.isArray(tasks)) return;
     const nextTasks = tasks.map((task) => ({
       ...task,
       isCompleted: false,
     }));
-    writeJson(STORAGE_KEYS.dailyTasks, nextTasks);
-  }
+    writeJson(storageKey, nextTasks);
+  };
+
+  resetTasksByKey(STORAGE_KEYS.dailyTasks);
+  resetTasksByKey(STORAGE_KEYS.dailyTasksChrome);
 
   writeJson(STORAGE_KEYS.logs, []);
   writeJson(STORAGE_KEYS.dailyResetDate, todayKey);
@@ -237,6 +250,10 @@ function normalizeProject(input: Partial<LocalProject> & { name: string }): Loca
     refLink: input.refLink ?? "",
     mixed: input.mixed ?? "",
   };
+}
+
+function getDailyTasksStorageKey(scope: DailyTaskScope = "telegram"): string {
+  return scope === "chrome" ? STORAGE_KEYS.dailyTasksChrome : STORAGE_KEYS.dailyTasks;
 }
 
 function createReminderId(): string {
@@ -469,9 +486,10 @@ export const localStore = {
   },
 
   // Daily tasks
-  getDailyTasks(): LocalDailyTask[] {
+  getDailyTasks(scope: DailyTaskScope = "telegram"): LocalDailyTask[] {
     ensureDailyReset();
-    let tasks = readJson<LocalDailyTask[]>(STORAGE_KEYS.dailyTasks, []);
+    const storageKey = getDailyTasksStorageKey(scope);
+    let tasks = readJson<LocalDailyTask[]>(storageKey, []);
     if (!Array.isArray(tasks)) tasks = [];
     let hasChanges = false;
     const normalizedTasks = tasks.map((task) => {
@@ -494,18 +512,18 @@ export const localStore = {
       };
     });
     if (hasChanges) {
-      this.saveDailyTasks(normalizedTasks);
+      this.saveDailyTasks(normalizedTasks, scope);
     }
     return normalizedTasks;
   },
 
-  saveDailyTasks(tasks: LocalDailyTask[]) {
-    writeJson(STORAGE_KEYS.dailyTasks, tasks);
+  saveDailyTasks(tasks: LocalDailyTask[], scope: DailyTaskScope = "telegram") {
+    writeJson(getDailyTasksStorageKey(scope), tasks);
   },
 
-  addDailyTask(title: string, remindAt?: number | null): LocalDailyTask {
+  addDailyTask(title: string, remindAt?: number | null, scope: DailyTaskScope = "telegram"): LocalDailyTask {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const reminders: LocalDailyReminder[] = Number.isFinite(Number(remindAt)) && Number(remindAt) > 0
       ? [{
         id: createReminderId(),
@@ -525,13 +543,13 @@ export const localStore = {
       repeatRule: "never",
     };
     tasks.push(created);
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return created;
   },
 
-  toggleDailyTask(id: number, isCompleted: boolean): LocalDailyTask | null {
+  toggleDailyTask(id: number, isCompleted: boolean, scope: DailyTaskScope = "telegram"): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     tasks[index] = {
@@ -539,16 +557,17 @@ export const localStore = {
       isCompleted,
       remindedBadgeDismissed: isCompleted ? true : Boolean(tasks[index].remindedBadgeDismissed),
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
   updateDailyTask(
     id: number,
-    patch: { title?: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat; reminders?: LocalDailyReminder[] }
+    patch: { title?: string; remindAt?: number | null; repeatRule?: DailyReminderRepeat; reminders?: LocalDailyReminder[] },
+    scope: DailyTaskScope = "telegram"
   ): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
 
@@ -586,13 +605,13 @@ export const localStore = {
       repeatRule: nextRemindAt ? nextRepeatRule : "never",
     };
 
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
-  updateDailyTaskReminder(id: number, remindAt?: number | null): LocalDailyTask | null {
+  updateDailyTaskReminder(id: number, remindAt?: number | null, scope: DailyTaskScope = "telegram"): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     const nextRemindAt = Number.isFinite(Number(remindAt)) ? Number(remindAt) : null;
@@ -613,13 +632,13 @@ export const localStore = {
       remindedAt: nextRemindAt ? null : tasks[index].remindedAt,
       repeatRule: nextRemindAt ? this.normalizeRepeatRule(tasks[index].repeatRule) : "never",
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
-  addDailyTaskReminder(id: number, remindAt: number, repeatRule?: DailyReminderRepeat): LocalDailyTask | null {
+  addDailyTaskReminder(id: number, remindAt: number, repeatRule?: DailyReminderRepeat, scope: DailyTaskScope = "telegram"): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     const nextReminder: LocalDailyReminder = {
@@ -635,13 +654,13 @@ export const localStore = {
       remindedBadgeDismissed: false,
       reminders: [...prevReminders, nextReminder],
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
-  removeDailyTaskReminder(id: number, reminderId: string): LocalDailyTask | null {
+  removeDailyTaskReminder(id: number, reminderId: string, scope: DailyTaskScope = "telegram"): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     const nextReminders = normalizeDailyReminders(tasks[index]).filter((reminder) => reminder.id !== reminderId);
@@ -650,17 +669,18 @@ export const localStore = {
       remindedBadgeDismissed: false,
       reminders: nextReminders,
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
   updateDailyTaskReminderEntry(
     id: number,
     reminderId: string,
-    patch: { remindAt?: number | null; remindedAt?: number | null; repeatRule?: DailyReminderRepeat }
+    patch: { remindAt?: number | null; remindedAt?: number | null; repeatRule?: DailyReminderRepeat },
+    scope: DailyTaskScope = "telegram"
   ): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     const reminders = normalizeDailyReminders(tasks[index]).map((reminder) => {
@@ -685,13 +705,13 @@ export const localStore = {
       remindedBadgeDismissed: false,
       reminders,
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
-  markDailyTaskReminded(id: number, reminderId: string, remindedAt: number): LocalDailyTask | null {
+  markDailyTaskReminded(id: number, reminderId: string, remindedAt: number, scope: DailyTaskScope = "telegram"): LocalDailyTask | null {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) return null;
     tasks[index] = {
@@ -702,16 +722,16 @@ export const localStore = {
           : reminder
       ),
     };
-    this.saveDailyTasks(tasks);
+    this.saveDailyTasks(tasks, scope);
     return tasks[index];
   },
 
-  deleteDailyTask(id: number): boolean {
+  deleteDailyTask(id: number, scope: DailyTaskScope = "telegram"): boolean {
     ensureDailyReset();
-    const tasks = this.getDailyTasks();
+    const tasks = this.getDailyTasks(scope);
     const next = tasks.filter((t) => t.id !== id);
     if (next.length === tasks.length) return false;
-    this.saveDailyTasks(next);
+    this.saveDailyTasks(next, scope);
     return true;
   },
 

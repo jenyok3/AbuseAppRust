@@ -110,6 +110,49 @@ export const getRunningTelegramProcesses = async () => {
   return await invoke<Array<{ pid: number; name: string; path: string }>>("get_running_telegram_processes");
 };
 
+export const launchChromeProfiles = async (params: {
+  chromeFolderPath: string;
+  startRange: number;
+  endRange: number;
+  mixed: boolean;
+  targetUrl?: string | null;
+}) => {
+  return await invoke<{
+    selected: number;
+    started: number;
+    skipped: number;
+    failed: number;
+  }>("launch_chrome_profiles", params);
+};
+
+export const closeChromeProfiles = async (chromeFolderPath: string) => {
+  return await invoke<{
+    target: number;
+    closed: number;
+  }>("close_chrome_profiles", { chromeFolderPath });
+};
+
+export const getRunningChromeProfiles = async (chromeFolderPath?: string) => {
+  return await invoke<string[]>("get_running_chrome_profiles", {
+    chromeFolderPath: chromeFolderPath && chromeFolderPath.trim().length > 0 ? chromeFolderPath : null,
+  });
+};
+
+export const launchSingleChromeProfile = async (params: {
+  chromeFolderPath: string;
+  profileName: string;
+  targetUrl?: string | null;
+}) => {
+  return await invoke<boolean>("launch_single_chrome_profile", params);
+};
+
+export const closeSingleChromeProfile = async (params: {
+  chromeFolderPath: string;
+  profileName: string;
+}) => {
+  return await invoke<boolean>("close_single_chrome_profile", params);
+};
+
 export const getAccountStats = async (
   telegramFolderPathOrQueryContext?: string | { queryKey?: unknown[] }
 ) => {

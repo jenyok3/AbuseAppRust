@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
+import { type DailyReminderRepeat, type DailyTaskScope, type LocalDailyReminder } from "@/lib/localStore";
 import { useI18n } from "@/lib/i18n";
 
 const MONTHS_GENITIVE = {
@@ -22,7 +22,11 @@ const MONTHS_NOMINATIVE = {
   ru: ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"],
 } as const;
 
-export function DailyTasksPanel() {
+type DailyTasksPanelProps = {
+  scope?: DailyTaskScope;
+};
+
+export function DailyTasksPanel({ scope = "telegram" }: DailyTasksPanelProps) {
   const DAILY_WIDGET_VISIBILITY_WINDOW_MS = 24 * 60 * 60 * 1000;
   const { language } = useI18n();
   const tr = (uk: string, en: string, ru: string) =>
@@ -43,11 +47,11 @@ export function DailyTasksPanel() {
     { value: "semiannual", label: tr("Раз на 6 місяців", "Every 6 months", "Раз в 6 месяцев") },
     { value: "yearly", label: tr("Щороку", "Yearly", "Ежегодно") },
   ];
-  const { data: tasks, isLoading } = useDailyTasks();
-  const { mutate: createTask, isPending: isCreating } = useCreateDailyTask();
-  const { mutate: toggleTask } = useToggleDailyTask();
-  const { mutate: deleteTask } = useDeleteDailyTask();
-  const { mutate: updateTask } = useUpdateDailyTask();
+  const { data: tasks, isLoading } = useDailyTasks(scope);
+  const { mutate: createTask, isPending: isCreating } = useCreateDailyTask(scope);
+  const { mutate: toggleTask } = useToggleDailyTask(scope);
+  const { mutate: deleteTask } = useDeleteDailyTask(scope);
+  const { mutate: updateTask } = useUpdateDailyTask(scope);
 
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -325,7 +329,7 @@ export function DailyTasksPanel() {
 
   return (
     <>
-      <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col h-full w-full min-h-0 max-h-[min(63vh,43rem)] overflow-hidden">
+      <div className="bg-card/40 backdrop-blur-sm border border-white/5 rounded-3xl p-6 flex flex-col h-full w-full min-h-0 overflow-hidden">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-display font-bold text-white flex items-center gap-2">
             <CheckSquare className="text-primary w-5 h-5" />
@@ -421,7 +425,7 @@ export function DailyTasksPanel() {
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
               placeholder={tr("Додати нове завдання...", "Add new task...", "Добавить новую задачу...")}
-              className="daily-tasks-input !bg-black/50 !border-white/10 text-sm h-10 rounded-xl pr-12 w-full transition-all duration-300 !focus:outline-none !focus:border-primary/50 !focus:bg-black/60 !focus:ring-2 !focus:ring-primary/20 !focus-visible:outline-none !focus-visible:border-primary/50 !focus-visible:bg-black/60 !focus-visible:ring-2 !focus-visible:ring-primary/20 !focus-visible:ring-offset-0"
+              className="daily-tasks-input !bg-white/[0.006] !border-white/[0.025] text-sm h-10 rounded-xl pr-12 w-full transition-all duration-300 !focus:outline-none !focus:border-white/[0.025] !focus:bg-white/[0.006] !focus:ring-0 !focus-visible:outline-none !focus-visible:border-white/[0.025] !focus-visible:bg-white/[0.006] !focus-visible:ring-0 !focus-visible:ring-offset-0"
             />
             <Button
               type="submit"
@@ -554,7 +558,7 @@ export function DailyTasksPanel() {
                       value={editingTaskTitle}
                       onChange={(e) => setEditingTaskTitle(e.target.value)}
                       autoComplete="new-password"
-                      className="bg-black/50 border-white/10 h-11 rounded-xl text-white"
+                      className="bg-white/[0.006] border-white/[0.025] h-11 rounded-xl text-white focus:border-white/[0.025]"
                       placeholder={tr("Введіть назву завдання", "Enter task title", "Введите название задачи")}
                     />
                   </div>
@@ -719,4 +723,5 @@ export function DailyTasksPanel() {
     </>
   );
 }
+
 

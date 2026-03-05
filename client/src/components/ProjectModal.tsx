@@ -17,9 +17,10 @@ interface ProjectModalProps {
   onSave: (project: ProjectData) => void;
   project?: ProjectData | null;
   mode: "add" | "edit";
+  linkPlaceholder?: string;
 }
 
-export function ProjectModal({ isOpen, onClose, onSave, project, mode }: ProjectModalProps) {
+export function ProjectModal({ isOpen, onClose, onSave, project, mode, linkPlaceholder }: ProjectModalProps) {
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = (uk: string, en: string, ru: string) =>
@@ -156,7 +157,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
               onFocus={() => setInputsUnlocked(true)}
               value={formData.name}
               onChange={(e) => handleInputChange("name", e.target.value)}
-              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
+              className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/[0.025]"
               placeholder={tr("Введіть назву проєкту", "Enter project name", "Введите название проекта")}
             />
           </div>
@@ -174,8 +175,8 @@ export function ProjectModal({ isOpen, onClose, onSave, project, mode }: Project
               onFocus={() => setInputsUnlocked(true)}
               value={formData.ref_link}
               onChange={(e) => handleInputChange("ref_link", e.target.value)}
-              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
-              placeholder="https://t.me/your_bot"
+              className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/[0.025]"
+              placeholder={linkPlaceholder || "https://t.me/your_bot"}
             />
           </div>
 

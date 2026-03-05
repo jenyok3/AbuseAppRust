@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, type ReactNode } from "react";
 import { useLogs, useCreateProject } from "@/hooks/use-dashboard";
 import { format } from "date-fns";
 import { Terminal, Plus, FolderPlus, Loader2 } from "lucide-react";
@@ -59,7 +59,17 @@ export function LogsPanel({ hideAddProject = false }: { hideAddProject?: boolean
   );
 }
 
-export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | "widget" }) {
+export function AddProjectDialog({
+  variant = "dialog",
+  defaultType = "telegram",
+  hideTypeSelector = false,
+  trigger,
+}: {
+  variant?: "dialog" | "widget";
+  defaultType?: "telegram" | "chrome";
+  hideTypeSelector?: boolean;
+  trigger?: ReactNode;
+}) {
   const { language } = useI18n();
   const tr = (uk: string, en: string, ru: string) =>
     language === "en" ? en : language === "ru" ? ru : uk;
@@ -67,7 +77,7 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [link, setLink] = useState("");
-  const [type, setType] = useState<"telegram" | "chrome">("telegram");
+  const [type, setType] = useState<"telegram" | "chrome">(defaultType);
 
   const { mutate: createProject, isPending } = useCreateProject();
   const { toast } = useToast();
@@ -83,7 +93,7 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
           setOpen(false);
           setName("");
           setLink("");
-          setType("telegram");
+          setType(defaultType);
           toast({ title: tr("Проєкт створено", "Project created", "Проект создан") });
         },
       }
@@ -120,18 +130,20 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>{tr("Тип", "Type", "Тип")}</Label>
-          <Select value={type} onValueChange={(value) => setType(value as "telegram" | "chrome")}> 
-            <SelectTrigger className="bg-black/50 border-white/10">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="bg-black border-white/10 text-white">
-              <SelectItem value="telegram">Telegram</SelectItem>
-              <SelectItem value="chrome">Chrome</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {!hideTypeSelector ? (
+          <div className="space-y-2">
+            <Label>{tr("Тип", "Type", "Тип")}</Label>
+            <Select value={type} onValueChange={(value) => setType(value as "telegram" | "chrome")}>
+              <SelectTrigger className="bg-black/50 border-white/10">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-black border-white/10 text-white">
+                <SelectItem value="telegram">Telegram</SelectItem>
+                <SelectItem value="chrome">Chrome</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
         <DialogFooter className="pt-4">
           <Button type="button" variant="ghost" onClick={() => setOpen(false)} className="hover:bg-white/10 hover:text-white">
@@ -150,12 +162,14 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <button className="h-full w-full border-2 border-dashed border-white/5 hover:border-primary/50 rounded-3xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-white transition-all hover:bg-white/5 group bg-card/20 backdrop-blur-sm stroke-dash-[10_15]">
-            <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-primary group-hover:text-white flex items-center justify-center transition-colors">
-              <Plus className="w-6 h-6" />
-            </div>
-            <span className="font-medium text-lg">{tr("Додати проєкт", "Add project", "Добавить проект")}</span>
-          </button>
+          {trigger ?? (
+            <button className="h-full w-full border-2 border-dashed border-white/5 hover:border-primary/50 rounded-3xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-white transition-all hover:bg-white/5 group bg-card/20 backdrop-blur-sm stroke-dash-[10_15]">
+              <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-primary group-hover:text-white flex items-center justify-center transition-colors">
+                <Plus className="w-6 h-6" />
+              </div>
+              <span className="font-medium text-lg">{tr("Додати проєкт", "Add project", "Добавить проект")}</span>
+            </button>
+          )}
         </DialogTrigger>
         <DialogContent className="bg-[#0a0a0a] border-white/10 text-white sm:max-w-md">{renderForm()}</DialogContent>
       </Dialog>
@@ -165,14 +179,17 @@ export function AddProjectDialog({ variant = "dialog" }: { variant?: "dialog" | 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="h-full min-h-[160px] w-full border-2 border-dashed border-white/10 hover:border-primary/50 rounded-3xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-white transition-all hover:bg-white/5 group">
-          <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-primary group-hover:text-white flex items-center justify-center transition-colors">
-            <Plus className="w-6 h-6" />
-          </div>
-          <span className="font-medium">{tr("Додати проєкт", "Add project", "Добавить проект")}</span>
-        </button>
+        {trigger ?? (
+          <button className="h-full min-h-[160px] w-full border-2 border-dashed border-white/10 hover:border-primary/50 rounded-3xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-white transition-all hover:bg-white/5 group">
+            <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-primary group-hover:text-white flex items-center justify-center transition-colors">
+              <Plus className="w-6 h-6" />
+            </div>
+            <span className="font-medium">{tr("Додати проєкт", "Add project", "Добавить проект")}</span>
+          </button>
+        )}
       </DialogTrigger>
       <DialogContent className="bg-[#0a0a0a] border-white/10 text-white sm:max-w-md">{renderForm()}</DialogContent>
     </Dialog>
   );
 }
+

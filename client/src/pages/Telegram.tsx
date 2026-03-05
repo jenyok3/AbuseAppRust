@@ -156,6 +156,21 @@ export default function Telegram() {
   const logAction = (message: string) => {
     createLog({ message });
   };
+  const isTechnicalLaunchReasonLog = (message: string) => {
+    const normalized = String(message ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    return /^tg\s+\d+\s*:\s*(spawned|timeout|retry_success|retry_failed|aborted)\s*\(attempt\s+\d+\)$/i.test(
+      normalized
+    );
+  };
+  const isChromeLog = (message: string) => /\bchrome\b/i.test(String(message ?? ""));
+  const filteredRecentActions = useMemo(
+    () =>
+      recentActions.filter((entry) => {
+        const message = String(entry?.message ?? "");
+        return !isTechnicalLaunchReasonLog(message) && !isChromeLog(message);
+      }),
+    [recentActions]
+  );
 
   const getAllProfileIds = (): number[] => {
     const ids = accounts
@@ -1036,7 +1051,42 @@ export default function Telegram() {
     return Number.isFinite(id) ? id : null;
   };
 
-  const QUICK_RETRY_DELAY_MS = 4000;
+  const QUICK_RETRY_DELAY_CONSERVATIVE_MS = 6500;
+  const QUICK_RETRY_SETTLE_CONSERVATIVE_MS = 3200;
+  const QUICK_RETRY_SECOND_BACKOFF_CONSERVATIVE_MS = 4500;
+  type LaunchSpeedProfile = "fast" | "balanced" | "conservative";
+  const getLaunchSpeedProfile = (): LaunchSpeedProfile => {
+    const raw = localStore.getSettings().telegramLaunchSpeed;
+    if (raw === "fast" || raw === "balanced") return raw;
+    return "conservative";
+  };
+  const getLaunchRetryDelays = () => {
+    const profile = getLaunchSpeedProfile();
+    if (profile === "fast") {
+      return {
+        healthCheckDelayMs: 3500,
+        retrySettleDelayMs: 1500,
+        secondRetryBackoffMs: 2000,
+      };
+    }
+    if (profile === "balanced") {
+      return {
+        healthCheckDelayMs: 5000,
+        retrySettleDelayMs: 2500,
+        secondRetryBackoffMs: 3000,
+      };
+    }
+    return {
+      healthCheckDelayMs: QUICK_RETRY_DELAY_CONSERVATIVE_MS,
+      retrySettleDelayMs: QUICK_RETRY_SETTLE_CONSERVATIVE_MS,
+      secondRetryBackoffMs: QUICK_RETRY_SECOND_BACKOFF_CONSERVATIVE_MS,
+    };
+  };
+
+  type LaunchReasonCode = "spawned" | "timeout" | "retry_success" | "retry_failed" | "aborted";
+  const logLaunchReasonCodes = (_profileIds: number[], _code: LaunchReasonCode, _attempt = 1) => {
+    // Keep reason-codes internal to launch flow and out of "Recent actions" logs.
+  };
 
   const waitMs = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -1401,6 +1451,7 @@ export default function Telegram() {
         .filter((id): id is number => Number.isFinite(id)),
     [filteredAccounts]
   );
+  const canOpenAll = !isLaunching;
   const selectedHashtagMeta = useMemo(
     () => (hashtagFilter !== "all" ? getHashtagMetaItem(hashtagFilter) : null),
     [hashtagFilter, hashtagMeta]
@@ -1763,6 +1814,7 @@ export default function Telegram() {
     params: TelegramLaunchParams | null;
     baseCount: number;
   }): Promise<{ effectivePids: number[]; launchedCount: number }> => {
+    const { healthCheckDelayMs, retrySettleDelayMs, secondRetryBackoffMs } = getLaunchRetryDelays();
     const shouldAbort = () => {
       const cancelCooldownActive = cancelRequestedAtRef.current > 0 && (Date.now() - cancelRequestedAtRef.current) < 8000;
       return finishingRef.current || stopLaunchRef.current || cancelLaunchRef.current || cancelCooldownActive || isTelegramLaunchStopActive();
@@ -1807,6 +1859,7 @@ export default function Telegram() {
     };
 
     if (shouldAbort()) {
+      logLaunchReasonCodes(profileIds, "aborted");
       await closeBatchProcesses();
       return { effectivePids: [], launchedCount: 0 };
     }
@@ -1821,42 +1874,86 @@ export default function Telegram() {
       }
       pids = await launchAccountsForProfiles(params, profileIds, telegramFolderPath) as number[];
     }
+    logLaunchReasonCodes(profileIds, "spawned", 1);
 
     if (shouldAbort()) {
+      logLaunchReasonCodes(profileIds, "aborted");
       await closeBatchProcesses(pids);
       return { effectivePids: [], launchedCount: 0 };
     }
 
-    await waitMs(QUICK_RETRY_DELAY_MS);
+    await waitMs(healthCheckDelayMs);
     if (shouldAbort()) {
+      logLaunchReasonCodes(profileIds, "aborted");
       await closeBatchProcesses(pids);
       return { effectivePids: [], launchedCount: 0 };
     }
 
     const missingProfiles = await getMissingProfilesForBatch(profileIds);
+    logLaunchReasonCodes(missingProfiles, "timeout", 1);
     if (shouldAbort()) {
+      logLaunchReasonCodes(profileIds, "aborted");
       await closeBatchProcesses(pids);
       return { effectivePids: [], launchedCount: 0 };
     }
-    if (missingProfiles.length > 0) {
+    let unresolvedProfiles = missingProfiles;
+    if (unresolvedProfiles.length > 0) {
       try {
         if (shouldAbort()) {
+          logLaunchReasonCodes(profileIds, "aborted");
           await closeBatchProcesses(pids);
           return { effectivePids: [], launchedCount: 0 };
         }
         if (mode === "plain") {
-          await launchPlainProfiles(missingProfiles, baseCount, telegramFolderPath, false);
+          await launchPlainProfiles(unresolvedProfiles, baseCount, telegramFolderPath, false);
         } else if (params) {
-          await launchAccountsForProfiles(params, missingProfiles, telegramFolderPath);
+          await launchAccountsForProfiles(params, unresolvedProfiles, telegramFolderPath);
         }
       } catch (error) {
         console.warn("Quick retry failed for batch:", error);
       }
-      await waitMs(1800);
+      await waitMs(retrySettleDelayMs);
       if (shouldAbort()) {
+        logLaunchReasonCodes(profileIds, "aborted");
         await closeBatchProcesses(pids);
         return { effectivePids: [], launchedCount: 0 };
       }
+
+      const missingAfterFirstRetry = await getMissingProfilesForBatch(unresolvedProfiles);
+      const missingAfterFirstRetrySet = new Set<number>(missingAfterFirstRetry);
+      const recoveredAfterFirstRetry = unresolvedProfiles.filter((profileId) => !missingAfterFirstRetrySet.has(profileId));
+      logLaunchReasonCodes(recoveredAfterFirstRetry, "retry_success", 1);
+      unresolvedProfiles = missingAfterFirstRetry;
+    }
+
+    if (unresolvedProfiles.length > 0) {
+      await waitMs(secondRetryBackoffMs);
+      if (shouldAbort()) {
+        logLaunchReasonCodes(profileIds, "aborted");
+        await closeBatchProcesses(pids);
+        return { effectivePids: [], launchedCount: 0 };
+      }
+      try {
+        if (mode === "plain") {
+          await launchPlainProfiles(unresolvedProfiles, baseCount, telegramFolderPath, false);
+        } else if (params) {
+          await launchAccountsForProfiles(params, unresolvedProfiles, telegramFolderPath);
+        }
+      } catch (error) {
+        console.warn("Second quick retry failed for batch:", error);
+      }
+      await waitMs(retrySettleDelayMs);
+      if (shouldAbort()) {
+        logLaunchReasonCodes(profileIds, "aborted");
+        await closeBatchProcesses(pids);
+        return { effectivePids: [], launchedCount: 0 };
+      }
+      const missingAfterSecondRetry = await getMissingProfilesForBatch(unresolvedProfiles);
+      const missingAfterSecondRetrySet = new Set<number>(missingAfterSecondRetry);
+      const recoveredAfterSecondRetry = unresolvedProfiles.filter((profileId) => !missingAfterSecondRetrySet.has(profileId));
+      logLaunchReasonCodes(recoveredAfterSecondRetry, "retry_success", 2);
+      logLaunchReasonCodes(missingAfterSecondRetry, "retry_failed", 2);
+      unresolvedProfiles = missingAfterSecondRetry;
     }
 
     let effectivePids = pids;
@@ -2014,14 +2111,6 @@ export default function Telegram() {
           startInput.select();
         }
       }, 160);
-      logAction(
-        tr(
-          `Запущено своє посилання ${customProject.app_name || "custom"}`,
-          `Launched custom link ${customProject.app_name || "custom"}`,
-          `Запущена своя ссылка ${customProject.app_name || "custom"}`
-        )
-      );
-      
       toast({
         title: tr("Кастомне посилання додано", "Custom link added", "Кастомная ссылка добавлена"),
         description: tr(
@@ -2626,6 +2715,8 @@ export default function Telegram() {
   // Auto-reset stale batch UI if user manually closed all Telegram windows outside the app.
   useEffect(() => {
     if (isLaunching || finishingRef.current || continueInFlightRef.current) return;
+    // If there are still profiles left for "Continue", keep batch state intact.
+    if (pendingProfiles.length > 0) return;
     const hasBatchMarkers =
       pendingProfiles.length > 0 ||
       launchedPids.length > 0 ||
@@ -2690,7 +2781,7 @@ export default function Telegram() {
         <div className="absolute bottom-0 left-1/2 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl" />
       </div> */}
 
-      <main className="relative z-10 w-full pl-4 sm:pl-5 lg:pl-6 pr-3 sm:pr-4 lg:pr-5 pb-6 telegram-content flex-1 overflow-y-auto">
+      <main className="relative z-10 w-full pl-0 pr-3 sm:pr-4 lg:pr-5 pb-6 telegram-content flex-1 overflow-y-auto">
         {/* Main content area */}
         <div className="flex flex-col gap-6">
           {/* Top row - Mass Launch, Stats and Recent Actions */}
@@ -2722,7 +2813,7 @@ export default function Telegram() {
                         open={isProjectSelectOpen}
                         onOpenChange={setIsProjectSelectOpen}
                       >
-                        <SelectTrigger className="bg-black/50 border-white/10 h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/10 data-[state=open]:border-white/10 text-white flex-1">
+                        <SelectTrigger className="bg-white/[0.006] border-white/[0.025] h-10 rounded-xl focus:ring-0 focus:ring-offset-0 focus:border-white/[0.025] data-[state=open]:border-white/[0.025] text-white flex-1">
                           <SelectValue placeholder={tr("Виберіть проєкт", "Select project", "Выберите проект")} />
                         </SelectTrigger>
                         <SelectContent
@@ -2751,7 +2842,7 @@ export default function Telegram() {
                           <SelectItem 
                             key="custom" 
                             value="custom" 
-                            className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-primary/20 focus:text-white"
+                            className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                           >
                             <div className="flex items-center w-full">
                               <span className="flex-1">{tr("Своє посилання", "Custom link", "Своя ссылка")}</span>
@@ -2762,7 +2853,7 @@ export default function Telegram() {
                               <SelectItem 
                                 key={name} 
                                 value={name} 
-                                className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-primary/20 focus:text-white"
+                                className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
                               >
                                 <div className="flex items-center w-full min-w-0 gap-2">
                                   <span className="block max-w-[55%] truncate">{name}</span>
@@ -2805,16 +2896,12 @@ export default function Telegram() {
                         variant="ghost"
                         size="sm"
                         onClick={handleLaunchAllAccounts}
-                        disabled={isLaunching || allProfileIds.length === 0}
-                        className={`h-10 px-3 border border-white/10 bg-transparent transition-all duration-200 flex-shrink-0 ${
-                          allProfileIds.length > 0
-                            ? "text-white/80 hover:text-white hover:bg-white/10 hover:border-white/20"
-                            : "text-white/30 cursor-default"
-                        }`}
+                        disabled={!canOpenAll}
+                        className="h-10 px-3 border border-white/[0.025] bg-white/[0.006] text-white/80 hover:text-white hover:bg-white/10 hover:border-white/[0.04] transition-all duration-200 flex-shrink-0 disabled:opacity-40 disabled:cursor-default"
                         title={tr(
-                          "Відкрити всі акаунти (за кількістю потоків)",
-                          "Open all accounts (based on thread count)",
-                          "Открыть все аккаунты (по количеству потоков)"
+                          "Відкрити всі акаунти (за значенням «Одночасно відкритих»)",
+                          "Open all accounts (based on the \"Opened simultaneously\" value)",
+                          "Открыть все аккаунты (по значению «Открыто одновременно»)"
                         )}
                       >
                         {tr("Відкрити всі", "Open all", "Открыть все")}
@@ -2822,7 +2909,7 @@ export default function Telegram() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-10 w-10 border border-white/10 bg-transparent hover:bg-white/10 hover:text-white transition-all duration-200 flex-shrink-0"
+                        className="h-10 w-10 border border-white/[0.025] bg-white/[0.006] hover:bg-white/10 hover:border-white/[0.04] hover:text-white transition-all duration-200 flex-shrink-0"
                         onClick={handleAddProject}
                       >
                         <Plus className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
@@ -2849,7 +2936,7 @@ export default function Telegram() {
                             }
                           }
                         }}
-                        className="bg-black/50 border-white/10 h-10 rounded-xl text-white font-mono transition-none focus:border-white/10 focus:ring-0 focus:outline-none !focus-visible:ring-0 !focus-visible:ring-offset-0 !focus-visible:outline-none" 
+                        className="bg-white/[0.006] border-white/[0.025] h-10 rounded-xl text-white font-mono transition-none focus:border-white/[0.025] focus:ring-0 focus:outline-none !focus-visible:ring-0 !focus-visible:ring-offset-0 !focus-visible:outline-none" 
                       />
                     </div>
                     <div className="space-y-2">
@@ -2869,7 +2956,7 @@ export default function Telegram() {
                             }
                           }
                         }}
-                        className="bg-black/50 border-white/10 h-10 rounded-xl text-white font-mono transition-none focus:border-white/10 focus:ring-0 focus:outline-none !focus-visible:ring-0 !focus-visible:ring-offset-0 !focus-visible:outline-none" 
+                        className="bg-white/[0.006] border-white/[0.025] h-10 rounded-xl text-white font-mono transition-none focus:border-white/[0.025] focus:ring-0 focus:outline-none !focus-visible:ring-0 !focus-visible:ring-offset-0 !focus-visible:outline-none" 
                       />
                     </div>
                   </div>
@@ -2957,14 +3044,14 @@ export default function Telegram() {
                     <h3 className="text-xl font-display font-bold text-white">{tr("Останні дії", "Recent actions", "Последние действия")}</h3>
                   </div>
                   
-                  {recentActions.length === 0 ? (
+                  {filteredRecentActions.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground/70">
                       {tr("Немає дій", "No actions", "Нет действий")}
                     </div>
                   ) : (
                     <ScrollArea className="flex-1 min-h-0">
                       <div className="space-y-2">
-                        {recentActions.slice(0, 24).map((entry: { id: number; message: string; timestamp: number }) => {
+                        {filteredRecentActions.slice(0, 24).map((entry: { id: number; message: string; timestamp: number }) => {
                           const message = String(entry?.message ?? "").trim().replace(/\.$/, "");
                           return (
                           <div
@@ -3009,7 +3096,20 @@ export default function Telegram() {
                       </Button>
                     )}
                     <Button
-                      onClick={() => loadRealStats(true)}
+                      onClick={() => {
+                        void (async () => {
+                          const ok = await loadRealStats(true);
+                          if (!ok) return;
+                          toast({
+                            title: tr("Оновлено", "Refreshed", "Обновлено"),
+                            description: tr(
+                              `Знайдено ${accounts.length} Telegram-акаунтів`,
+                              `Found ${accounts.length} Telegram accounts`,
+                              `Найдено ${accounts.length} Telegram-аккаунтов`
+                            ),
+                          });
+                        })();
+                      }}
                       disabled={statsLoading}
                       variant="ghost"
                       size="icon"
@@ -3024,7 +3124,7 @@ export default function Telegram() {
             </div>
 
             {/* Right column - Calendar and Daily Tasks stacked */}
-            <div className="telegram-right-column flex flex-col gap-6 min-h-0 min-w-0 overflow-hidden lg:h-full">
+            <div className="telegram-right-column flex flex-col gap-6 min-h-0 min-w-0 overflow-hidden">
               {/* Calendar Widget */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -3045,7 +3145,7 @@ export default function Telegram() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.5 }}
-                className="flex flex-col flex-1 h-0 min-h-0 overflow-hidden"
+                className="flex flex-col h-[28.25rem] shrink-0 min-h-0 overflow-hidden"
               >
                 <DailyTasksPanel />
               </motion.div>
@@ -3075,7 +3175,7 @@ export default function Telegram() {
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => setIsSearchFocused(false)}
                     placeholder={tr("Пошук", "Search", "Поиск")}
-                    className={`h-9 w-full sm:w-60 bg-black/40 border-white/10 pr-9 text-white/90 placeholder:text-white/30 focus:border-white/20 ${
+                    className={`h-9 w-full sm:w-60 bg-white/[0.006] border-white/[0.025] pr-9 text-white/90 placeholder:text-white/30 focus:border-white/[0.025] ${
                       isSearchFocused ? "pl-3" : "pl-9"
                     }`}
                   />
@@ -3107,7 +3207,7 @@ export default function Telegram() {
                         <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary shadow-[0_0_8px_rgba(157,0,255,0.6)]" />
                       ) : null}
                     </SelectTrigger>
-                    <SelectContent className="bg-black/95 border-white/10 text-white">
+                    <SelectContent className="bg-black border-white/10 text-white">
                       <SelectItem
                         value="all"
                         className="text-xs focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
@@ -3412,7 +3512,7 @@ export default function Telegram() {
                       <div className="flex gap-2">
                         <Input
                           placeholder={tr("Додати нотатку..", "Add note..", "Добавить заметку..")}
-                          className="bg-black/40 border-white/5 text-white text-xs flex-1 placeholder:text-gray-500"
+                          className="bg-white/[0.006] border-white/[0.025] text-white text-xs flex-1 placeholder:text-gray-500 focus:border-white/[0.025] focus:ring-0"
                             defaultValue={account.notes ?? ""}
                             onBlur={(e) => {
                               if (e.target.value !== (account.notes || "")) {
@@ -3426,7 +3526,7 @@ export default function Telegram() {
                             className={`h-8 w-8 rounded-lg transition-all ${
                               openAccounts.has(account.id) 
                                 ? "border-transparent bg-gradient-to-r from-primary to-primary/80 text-white hover:scale-105" 
-                                : "border-white/10 hover:bg-white/10 hover:border-white/20"
+                                : "bg-white/[0.006] border-white/[0.025] hover:bg-white/10 hover:border-white/[0.04]"
                             } focus-visible:ring-0 focus-visible:outline-none`}
                             onClick={() => handleToggleAccount(account.id)}
                           >
@@ -3538,7 +3638,7 @@ export default function Telegram() {
                 autoComplete="new-password"
                 value={hashtagInput}
                 onChange={(e) => setHashtagInput(e.target.value)}
-                className="bg-black/50 border-white/10 h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/10"
+                className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/[0.025]"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -3591,7 +3691,7 @@ export default function Telegram() {
                   autoComplete="new-password"
                   value={hashtagEditName}
                   onChange={(e) => setHashtagEditName(e.target.value)}
-                  className="bg-black/50 border-white/10 h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/10"
+                  className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-7 text-white placeholder:text-gray-500 focus:border-white/[0.025]"
                 />
               </div>
             </div>
@@ -3604,7 +3704,7 @@ export default function Telegram() {
                 value={hashtagEditLink}
                 onChange={(e) => setHashtagEditLink(e.target.value)}
                 placeholder="https://t.me/your_bot"
-                className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10"
+                className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/[0.025]"
               />
             </div>
             {hashtagEditErrors.length > 0 ? (
@@ -3638,6 +3738,7 @@ export default function Telegram() {
     </div>
   );
 }
+
 
 
 

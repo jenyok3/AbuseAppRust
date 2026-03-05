@@ -80,7 +80,11 @@ export function ThemeEffects() {
     };
 
     window.addEventListener("settingsUpdated", handler as EventListener);
-    return () => window.removeEventListener("settingsUpdated", handler as EventListener);
+    window.addEventListener("themeSettingsUpdated", handler as EventListener);
+    return () => {
+      window.removeEventListener("settingsUpdated", handler as EventListener);
+      window.removeEventListener("themeSettingsUpdated", handler as EventListener);
+    };
   }, []);
 
   useEffect(() => {

@@ -9,9 +9,11 @@ interface CustomLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (url: string) => void;
+  placeholder?: string;
+  mode?: "telegram" | "generic";
 }
 
-export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalProps) {
+export function CustomLinkModal({ isOpen, onClose, onSubmit, placeholder, mode = "telegram" }: CustomLinkModalProps) {
   const { language } = useI18n();
   const tr = (uk: string, en: string, ru: string) =>
     language === "en" ? en : language === "ru" ? ru : uk;
@@ -43,14 +45,27 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
       validationErrors.push(tr("Некоректне посилання", "Invalid link", "Некорректная ссылка"));
     }
 
-    if (!value.startsWith("https://t.me/") && !value.startsWith("tg://")) {
-      validationErrors.push(
-        tr(
-          "Посилання має починатися з https://t.me/ або tg://",
-          "Link must start with https://t.me/ or tg://",
-          "Ссылка должна начинаться с https://t.me/ или tg://"
-        )
-      );
+    if (mode === "telegram") {
+      if (!value.startsWith("https://t.me/") && !value.startsWith("tg://")) {
+        validationErrors.push(
+          tr(
+            "Посилання має починатися з https://t.me/ або tg://",
+            "Link must start with https://t.me/ or tg://",
+            "Ссылка должна начинаться с https://t.me/ или tg://"
+          )
+        );
+      }
+    } else {
+      const lowered = value.toLowerCase();
+      if (!lowered.startsWith("https://") && !lowered.startsWith("http://")) {
+        validationErrors.push(
+          tr(
+            "Посилання має починатися з https:// або http://",
+            "Link must start with https:// or http://",
+            "Ссылка должна начинаться с https:// или http://"
+          )
+        );
+      }
     }
 
     return validationErrors;
@@ -106,8 +121,8 @@ export function CustomLinkModal({ isOpen, onClose, onSubmit }: CustomLinkModalPr
               spellCheck={false}
               value={url}
               onChange={(e) => handleInputChange(e.target.value)}
-              className="bg-black/50 border-white/10 h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/10 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none"
-              placeholder="https://t.me/your_bot"
+              className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white placeholder:text-gray-500 focus:border-white/[0.025] focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none"
+              placeholder={placeholder || "https://t.me/your_bot"}
             />
           </div>
 

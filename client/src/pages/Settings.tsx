@@ -3,12 +3,13 @@ import { useRef, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Save, FolderOpen } from "lucide-react";
+import { Save, FolderOpen, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { openDirectoryDialog, saveSettings as saveSettingsTauri } from "@/lib/tauri-api";
 import { localStore } from "@/lib/localStore";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { type AppLanguage, useI18n } from "@/lib/i18n";
 
@@ -37,6 +38,7 @@ export default function Settings() {
   const { t } = useI18n();
   const [telegramThreads, setTelegramThreads] = useState<string>("");
   const [telegramFolderPath, setTelegramFolderPath] = useState<string>("");
+  const [telegramLaunchSpeed, setTelegramLaunchSpeed] = useState<"fast" | "balanced" | "conservative">("conservative");
   const [chromeThreads, setChromeThreads] = useState<string>("");
   const [chromeFolderPath, setChromeFolderPath] = useState<string>("");
   const [language, setLanguage] = useState<AppLanguage>("uk");
@@ -49,6 +51,7 @@ export default function Settings() {
   const [initialSettings, setInitialSettings] = useState({
     telegramThreads: "",
     telegramFolderPath: "",
+    telegramLaunchSpeed: "conservative" as "fast" | "balanced" | "conservative",
     chromeThreads: "",
     chromeFolderPath: "",
     language: "uk" as AppLanguage,
@@ -88,6 +91,11 @@ export default function Settings() {
     const normalizedThemeEffect = normalizeThemeEffect(settings.themeEffect);
     setTelegramThreads(settings.telegramThreads || "");
     setTelegramFolderPath(normalizeWindowsPath(settings.telegramFolderPath || ""));
+    setTelegramLaunchSpeed(
+      settings.telegramLaunchSpeed === "fast" || settings.telegramLaunchSpeed === "balanced"
+        ? settings.telegramLaunchSpeed
+        : "conservative"
+    );
     setChromeThreads(settings.chromeThreads || "");
     setChromeFolderPath(normalizeWindowsPath(settings.chromeFolderPath || ""));
     setLanguage(settings.language === "en" || settings.language === "ru" ? settings.language : "uk");
@@ -99,6 +107,10 @@ export default function Settings() {
     setInitialSettings({
       telegramThreads: settings.telegramThreads || "",
       telegramFolderPath: normalizeWindowsPath(settings.telegramFolderPath || ""),
+      telegramLaunchSpeed:
+        settings.telegramLaunchSpeed === "fast" || settings.telegramLaunchSpeed === "balanced"
+          ? settings.telegramLaunchSpeed
+          : "conservative",
       chromeThreads: settings.chromeThreads || "",
       chromeFolderPath: normalizeWindowsPath(settings.chromeFolderPath || ""),
       language: settings.language === "en" || settings.language === "ru" ? settings.language : "uk",
@@ -132,6 +144,7 @@ export default function Settings() {
             ...persisted,
             telegramThreads,
             telegramFolderPath: normalizedTelegramFolderPath,
+            telegramLaunchSpeed,
           }
         : {
             ...persisted,
@@ -157,6 +170,7 @@ export default function Settings() {
     setInitialSettings((prev) => ({
       telegramThreads: section === "telegram" ? telegramThreads : prev.telegramThreads,
       telegramFolderPath: section === "telegram" ? telegramFolderPath : prev.telegramFolderPath,
+      telegramLaunchSpeed: section === "telegram" ? telegramLaunchSpeed : prev.telegramLaunchSpeed,
       chromeThreads: section === "chrome" ? chromeThreads : prev.chromeThreads,
       chromeFolderPath: section === "chrome" ? chromeFolderPath : prev.chromeFolderPath,
       language: prev.language,
@@ -188,7 +202,12 @@ export default function Settings() {
   const handleLanguageChange = async (next: AppLanguage) => {
     setLanguage(next);
     const persisted = localStore.getSettings();
-    const settings = { ...persisted, language: next };
+    const settings = {
+      ...persisted,
+      language: next,
+      languageManuallySet: true,
+      languageAutoDetected: true,
+    };
     localStore.saveSettings(settings);
     try {
       await saveSettingsTauri(settings);
@@ -498,35 +517,30 @@ export default function Settings() {
   };
 
   return (
-    <div className="h-full min-h-0 bg-transparent text-white overflow-y-auto">
+    <div className="h-full min-h-0 bg-transparent text-white overflow-y-auto" data-scroll-root="true">
       <main className="max-w-2xl mx-auto pt-6 lg:pt-10 px-4 sm:px-6 pb-16 sm:pb-20">
-        <div className="flex items-center gap-3 mb-8">
-	          <div>
-	            <h1 className="text-3xl font-bold tracking-tight">{t("settings.title")}</h1>
-	          </div>
-	        </div>
-
         <div className="flex flex-wrap items-center gap-2 mb-6">
           <button
             type="button"
             onClick={() => setActiveTab("general")}
             className={cn(
-              "px-4 h-10 rounded-xl text-sm font-medium transition-colors",
+              "px-4 h-10 text-sm font-medium transition-colors bg-transparent border-0",
               activeTab === "general"
-                ? "bg-white/10 text-white border border-white/10"
-                : "text-white/60 hover:text-white hover:bg-white/5 border border-transparent"
+                ? "text-white"
+                : "text-white/60 hover:text-white"
             )}
           >
-            {t("settings.tab.general")}
+            Загальні
           </button>
+          <span className="h-5 w-px bg-white/20" aria-hidden="true" />
           <button
             type="button"
             onClick={() => setActiveTab("themes")}
             className={cn(
-              "px-4 h-10 rounded-xl text-sm font-medium transition-colors",
+              "px-4 h-10 text-sm font-medium transition-colors bg-transparent border-0",
               activeTab === "themes"
-                ? "bg-white/10 text-white border border-white/10"
-                : "text-white/60 hover:text-white hover:bg-white/5 border border-transparent"
+                ? "text-white"
+                : "text-white/60 hover:text-white"
             )}
           >
             {t("settings.tab.themes")}
@@ -542,7 +556,7 @@ export default function Settings() {
                   <p className="text-sm text-white/50">{t("settings.theme.description")}</p>
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
+              <div className="rounded-2xl border border-white/[0.025] bg-white/[0.006] px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium text-white">{t("settings.theme.snow")}</div>
@@ -595,7 +609,7 @@ export default function Settings() {
                   </div>
                 ) : null}
               </div>
-              <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
+              <div className="rounded-2xl border border-white/[0.025] bg-white/[0.006] px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium text-white">{t("settings.theme.sakura")}</div>
@@ -650,7 +664,7 @@ export default function Settings() {
                   </div>
                 ) : null}
               </div>
-              <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
+              <div className="rounded-2xl border border-white/[0.025] bg-white/[0.006] px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium text-white">{t("settings.theme.rain")}</div>
@@ -705,7 +719,7 @@ export default function Settings() {
                   </div>
                 ) : null}
               </div>
-              <div className="rounded-2xl border border-white/5 bg-black/40 px-4 py-4 space-y-3">
+              <div className="rounded-2xl border border-white/[0.025] bg-white/[0.006] px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium text-white">{t("settings.theme.leaves")}</div>
@@ -770,9 +784,27 @@ export default function Settings() {
                 </h2>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="telegramThreads" className="text-sm font-medium text-zinc-400">
-                      {t("settings.telegram.threads.label")}
-                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="telegramThreads" className="text-sm font-medium text-zinc-400">
+                        {t("settings.concurrent_opened.label")}
+                      </Label>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t("settings.concurrent_opened.aria.telegram")}
+                              className="inline-flex h-4 w-4 items-center justify-center text-zinc-300 transition-colors hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                            >
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs border-white/10 bg-black text-zinc-100">
+                            {t("settings.concurrent_opened.tooltip")}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Input
                       id="telegramThreads"
                       type="number"
@@ -781,7 +813,7 @@ export default function Settings() {
                       onChange={(e) => {
                         setTelegramThreads(e.target.value);
                       }}
-                      className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none"
+                      className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-4 focus:outline-none focus:border-white/[0.025]"
                       placeholder="1"
                     />
                   </div>
@@ -798,7 +830,7 @@ export default function Settings() {
                         onChange={(e) => {
                           setTelegramFolderPath(normalizeWindowsPath(e.target.value));
                         }}
-                        className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none flex-1"
+                        className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-4 focus:outline-none focus:border-white/[0.025] flex-1"
                         placeholder={String.raw`C:\Users\Admin\Documents\TelegramAccounts`}
                       />
                       <Button
@@ -806,15 +838,44 @@ export default function Settings() {
                         variant="ghost"
                         size="icon"
                         onClick={handleSelectTelegramFolder}
-                        className="bg-black/40 border border-white/5 h-12 w-12 rounded-xl focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                        className="bg-white/[0.006] border border-white/[0.025] h-12 w-12 rounded-xl hover:bg-white/10 hover:border-white/[0.04] focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                       >
                         <FolderOpen className="w-4 h-4 text-white/80" />
                       </Button>
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="telegramLaunchSpeed" className="text-sm font-medium text-zinc-400">
+                      {t("settings.telegram.launch_speed.label")}
+                    </Label>
+                    <Select
+                      value={telegramLaunchSpeed}
+                      onValueChange={(value) => setTelegramLaunchSpeed(value as "fast" | "balanced" | "conservative")}
+                    >
+                      <SelectTrigger
+                        id="telegramLaunchSpeed"
+                        className="w-full bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/[0.025] data-[state=open]:border-white/[0.025]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-black border-white/10 text-white">
+                        <SelectItem value="fast" className="focus:bg-white/10 focus:text-white">
+                          {t("settings.telegram.launch_speed.fast")}
+                        </SelectItem>
+                        <SelectItem value="balanced" className="focus:bg-white/10 focus:text-white">
+                          {t("settings.telegram.launch_speed.balanced")}
+                        </SelectItem>
+                        <SelectItem value="conservative" className="focus:bg-white/10 focus:text-white">
+                          {t("settings.telegram.launch_speed.stable")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 {(telegramThreads !== initialSettings.telegramThreads ||
-                  telegramFolderPath !== initialSettings.telegramFolderPath) && (
+                  telegramFolderPath !== initialSettings.telegramFolderPath ||
+                  telegramLaunchSpeed !== initialSettings.telegramLaunchSpeed) && (
                   <div className="flex justify-end pt-2">
                     <Button 
                       onClick={() => handleSave("telegram")}
@@ -834,9 +895,27 @@ export default function Settings() {
                 </h2>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="chromeThreads" className="text-sm font-medium text-zinc-400">
-                      {t("settings.chrome.threads.label")}
-                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="chromeThreads" className="text-sm font-medium text-zinc-400">
+                        {t("settings.concurrent_opened.label")}
+                      </Label>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t("settings.concurrent_opened.aria.chrome")}
+                              className="inline-flex h-4 w-4 items-center justify-center text-zinc-300 transition-colors hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                            >
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs border-white/10 bg-black text-zinc-100">
+                            {t("settings.concurrent_opened.tooltip")}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Input
                       id="chromeThreads"
                       type="number"
@@ -845,7 +924,7 @@ export default function Settings() {
                       onChange={(e) => {
                         setChromeThreads(e.target.value);
                       }}
-                      className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none"
+                      className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-4 focus:outline-none focus:border-white/[0.025]"
                       placeholder="1"
                     />
                   </div>
@@ -862,7 +941,7 @@ export default function Settings() {
                         onChange={(e) => {
                           setChromeFolderPath(normalizeWindowsPath(e.target.value));
                         }}
-                        className="bg-black/40 border-white/5 h-12 rounded-xl pl-4 focus:outline-none flex-1"
+                        className="bg-white/[0.006] border-white/[0.025] h-12 rounded-xl pl-4 focus:outline-none focus:border-white/[0.025] flex-1"
                         placeholder={String.raw`C:\Users\Admin\Documents\ChromeAccounts`}
                       />
                       <Button
@@ -870,7 +949,7 @@ export default function Settings() {
                         variant="ghost"
                         size="icon"
                         onClick={handleSelectChromeFolder}
-                        className="bg-black/40 border border-white/5 h-12 w-12 rounded-xl focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                        className="bg-white/[0.006] border border-white/[0.025] h-12 w-12 rounded-xl hover:bg-white/10 hover:border-white/[0.04] focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
                       >
                         <FolderOpen className="w-4 h-4 text-white/80" />
                       </Button>
@@ -897,7 +976,7 @@ export default function Settings() {
                   <Select value={language} onValueChange={(value) => handleLanguageChange(value as AppLanguage)}>
                     <SelectTrigger
                       id="appLanguage"
-                      className="w-full bg-black/40 border-white/5 h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/5 data-[state=open]:border-white/5"
+                      className="w-full bg-white/[0.006] border-white/[0.025] h-12 rounded-xl text-white focus:ring-0 focus:ring-offset-0 focus:border-white/[0.025] data-[state=open]:border-white/[0.025]"
                     >
                       <SelectValue />
                     </SelectTrigger>

@@ -1,5 +1,5 @@
 ﻿import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat, type LocalDailyReminder } from "@/lib/localStore";
+import { localStore, type LocalProject, type LocalAccount, type DailyReminderRepeat, type LocalDailyReminder, type DailyTaskScope } from "@/lib/localStore";
 import { type AccountStatus } from "@/lib/accountStatus";
 import { getCurrentLanguage } from "@/lib/i18n";
 
@@ -109,40 +109,40 @@ export function useUpdateAccountStatus() {
 // DAILY TASKS
 // ============================================
 
-export function useDailyTasks() {
+export function useDailyTasks(scope: DailyTaskScope = "telegram") {
   return useQuery({
-    queryKey: ["local", "dailyTasks"],
-    queryFn: async () => localStore.getDailyTasks(),
+    queryKey: ["local", "dailyTasks", scope],
+    queryFn: async () => localStore.getDailyTasks(scope),
   });
 }
 
-export function useCreateDailyTask() {
+export function useCreateDailyTask(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { title: string; remindAt?: number | null }) => {
-      return localStore.addDailyTask(data.title, data.remindAt);
+      return localStore.addDailyTask(data.title, data.remindAt, scope);
     },
     onSuccess: (created) => {
       localStore.addLog(lt(`Додано щоденне завдання: ${created.title}`, `Added daily task: ${created.title}`, `Добавлена ежедневная задача: ${created.title}`));
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
 
-export function useToggleDailyTask() {
+export function useToggleDailyTask(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, isCompleted }: { id: number; isCompleted: boolean }) => {
-      const updated = localStore.toggleDailyTask(id, isCompleted);
+      const updated = localStore.toggleDailyTask(id, isCompleted, scope);
       if (!updated) throw new Error("Failed to toggle task");
       return updated;
     },
     // Optimistic UI update
     onMutate: async ({ id, isCompleted }) => {
-      await queryClient.cancelQueries({ queryKey: ["local", "dailyTasks"] });
-      const previousTasks = queryClient.getQueryData<any[]>(["local", "dailyTasks"]);
-      queryClient.setQueryData(["local", "dailyTasks"], (old: any[] | undefined) => {
+      await queryClient.cancelQueries({ queryKey: ["local", "dailyTasks", scope] });
+      const previousTasks = queryClient.getQueryData<any[]>(["local", "dailyTasks", scope]);
+      queryClient.setQueryData(["local", "dailyTasks", scope], (old: any[] | undefined) => {
         return old?.map(task =>
           task.id === id
             ? {
@@ -156,24 +156,24 @@ export function useToggleDailyTask() {
       return { previousTasks };
     },
     onError: (err, newTodo, context) => {
-      queryClient.setQueryData(["local", "dailyTasks"], context?.previousTasks);
+      queryClient.setQueryData(["local", "dailyTasks", scope], context?.previousTasks);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
 
-export function useDeleteDailyTask() {
+export function useDeleteDailyTask(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
-      const ok = localStore.deleteDailyTask(id);
+      const ok = localStore.deleteDailyTask(id, scope);
       if (!ok) throw new Error("Failed to delete task");
     },
     onMutate: async (id: number) => {
-      const tasks = queryClient.getQueryData<any[]>(["local", "dailyTasks"]) ?? [];
+      const tasks = queryClient.getQueryData<any[]>(["local", "dailyTasks", scope]) ?? [];
       const task = tasks.find((item) => item?.id === id);
       return { title: typeof task?.title === "string" ? task.title : null };
     },
@@ -181,13 +181,13 @@ export function useDeleteDailyTask() {
       const title = typeof context?.title === "string" ? context.title : null;
       const label = title ? lt(`Видалено щоденне завдання: ${title}`, `Deleted daily task: ${title}`, `Удалена ежедневная задача: ${title}`) : lt("Видалено щоденне завдання", "Deleted daily task", "Удалена ежедневная задача");
       localStore.addLog(label);
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
 
-export function useUpdateDailyTask() {
+export function useUpdateDailyTask(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -203,44 +203,44 @@ export function useUpdateDailyTask() {
       repeatRule?: DailyReminderRepeat;
       reminders?: LocalDailyReminder[];
     }) => {
-      const updated = localStore.updateDailyTask(id, { title, remindAt, repeatRule, reminders });
+      const updated = localStore.updateDailyTask(id, { title, remindAt, repeatRule, reminders }, scope);
       if (!updated) throw new Error("Failed to update task");
       return updated;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
 
-export function useUpdateDailyTaskReminder() {
+export function useUpdateDailyTaskReminder(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, remindAt }: { id: number; remindAt?: number | null }) => {
-      const updated = localStore.updateDailyTaskReminder(id, remindAt);
+      const updated = localStore.updateDailyTaskReminder(id, remindAt, scope);
       if (!updated) throw new Error("Failed to update task reminder");
       return updated;
     },
     onSuccess: (_updated, { id, remindAt }) => {
       const label = remindAt ? lt("Заплановано", "Scheduled", "Запланировано") : lt("Скасовано", "Canceled", "Отменено");
       localStore.addLog(lt(`${label} нагадування для завдання #${id}`, `${label} reminder for task #${id}`, `${label} напоминание для задачи #${id}`));
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
   });
 }
 
-export function useMarkDailyTaskReminded() {
+export function useMarkDailyTaskReminded(scope: DailyTaskScope = "telegram") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, reminderId, remindedAt }: { id: number; reminderId: string; remindedAt: number }) => {
-      const updated = localStore.markDailyTaskReminded(id, reminderId, remindedAt);
+      const updated = localStore.markDailyTaskReminded(id, reminderId, remindedAt, scope);
       if (!updated) throw new Error("Failed to mark task reminded");
       return updated;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks"] });
+      queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
     },
   });
 }

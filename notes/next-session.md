@@ -1,121 +1,4 @@
-﻿## Snapshot (2026-03-01) - Calendar page (full-screen UX + Daily planned badges)
-
-### Закрито в цій сесії
-- Calendar page: прибрано toggle-кнопку режимів і повністю видалено блок "Зустрічі"; залишено лише календарну сітку.
-- Calendar layout: перероблено на full-page сценарій (ширина на весь контейнер), повернуто вертикальний скрол сторінки, додано sticky-шапку (місяць + дні тижня).
-- Calendar month grid: замінено технічні `+/-` клітинки на реальні дні попереднього/поточного/наступного місяця з тьмяним стилем для неактивних днів.
-- Daily integration: кульки в календарі тепер беруться з реальних Daily reminders (логіка як у "Заплановано"): враховуються тільки `!remindedAt` і `remindAt > now`; підрахунок агрегується по даті.
-- Calendar header: у заголовку залишено лише назву місяця (без року).
-- Calendar visuals: повернуто фіолетовий фон сторінки (deco blur-шар).
-- Badge UX: прибрано проблемну анімацію "телепорту/тряски"; залишено м’яку анімацію переміщення бейджа з кута в центр при hover, без контурної підсвітки.
-- Badge positioning: підкориговано відступ від кута в неактивному стані (`right/bottom`), щоб не налазило на скруглення.
-- Encoding: виправлено UTF-8 для календарних файлів після тимчасових артефактів `��`.
-- Local logs sanitize: посилено очистку зламаних символів `\uFFFD` у `localStore.sanitizeLogMessage`.
-- Telegram / Mass launch stop: посилено логіку "Завершити" після навігації між сторінками (Settings <-> Telegram) — додано `stop/cancel/finishing` guard-и, mutex для `Continue`, fallback-закриття PID-ів по запущених процесах у межах `telegramFolderPath`, multi-sweep після cancel.
-- Telegram / Mass launch stop: додано module-level "stop barrier" (тайм-аутний глобальний блок) для захисту від повторного запуску батчу зі старих async-ланцюжків після remount сторінки.
-- Telegram / Progress restore: розширено персист/рестор `telegramLaunch`-стану (`isLaunching`, `launchProgressCount`, `launchMode`) для стабільного відновлення прогрес-бара після переходів між сторінками.
-- Sidebar UX: виправлено нерозгортання сайдбара на desktop — поріг narrow viewport змінено з `1280px` на `1024px`.
-- Calendar page (temporary): замість інтерактивного календаря встановлено чорну заглушку "Сторінка знаходиться в процесі розробки" у стилі сторінки Chrome.
-- Chrome page (temporary text): заголовок встановлено як `Chrome`, підпис повернуто з i18n (`t("chrome.description")`).
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` - проходить.
-## Snapshot (2026-02-28) - Daily behavior / Select UX / Windows taskbar icon
-
-### Закрито в цій сесії
-- Project modal: посилено анти-autofill для "Додати/Редагувати проєкт" (динамічні `id/name` на кожне відкриття, `autoComplete="off"`, hidden decoy-поля, `readOnly` до першого фокусу/кліку), щоб прибрати підстановку збережених значень при кліку в інпут.
-- Daily Tasks: змінено поведінку completion — майбутні reminder-и більше не видаляються при встановленні галочки.
-- Daily Tasks: прибрано примусове правило `future reminder => isCompleted: false`; тепер чекбокс можна ставити/знімати незалежно від наявності майбутніх нагадувань.
-- Daily Tasks: синхронізовано це правило у всіх шляхах оновлення (`getDailyTasks`, `updateDailyTask`, `updateDailyTaskReminder`, `addDailyTaskReminder`, `updateDailyTaskReminderEntry`), без автоскидання checked-стану.
-- Telegram / Mass launch / Project select: виправлено обрізання правого краю dropdown (`SelectContent` вирівняно від тригера, адаптивна ширина від `--radix-select-trigger-width`).
-- Telegram / Mass launch / Project select: контент елементів списку вирівняно зліва (включно з `name + ref_link`), прибрано "розліт" елементів по рядку, додано стабільний `truncate`.
-- Telegram / Mass launch / Project select: прибрано ефект підсвітки рамки trigger-поля після виходу курсора зі списку.
-- Settings / Language select: прибрано підсвітку рамки trigger-поля (аналогічно до Telegram).
-- Settings / Language select: зафіксовано відкриття dropdown донизу (`side="bottom"`, без auto-flip), додано внутрішній scroll (`max-height + overflow-y-auto`) для сценаріїв, коли знизу мало місця.
-- Windows taskbar icon: проведено діагностику (перевірено `icon.ico` і конфіг); додано явний виклик `SetCurrentProcessExplicitAppUserModelID("com.abuseapp.desktop")` на старті застосунку для стабільнішого матчингу іконки на першому запуску після інсталяції.
-- Tauri/Rust: для цього підключено `windows-sys` feature `Win32_UI_Shell`.
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` - проходить.
-- `cargo check` - проходить.
-## Snapshot (2026-02-28) - Daily visibility + Calendar rebuild
-
-### Закрито в цій сесії
-- Daily widget: задачі з майбутніми нагадуваннями тепер ховаються з віджета, якщо до найближчого reminder більше `24h`; автоматично з’являються при вході у вікно `<=24h`.
-- Daily state: виправлено кейс із “залиплим” checked-станом - якщо у задачі є активне майбутнє нагадування, вона примусово нормалізується в `isCompleted: false` (у `localStore` при читанні та при оновленнях reminder-ів).
-- Daily modal time row: прибрано сірий “приклад” часу (`placeholder`) під час фокусу/кліку в полі часу.
-- Daily modal “Заплановано”: повернуто коректну поведінку - показує майбутні planned-reminder записи без 24h-фільтра (не лише ті, що вже видно у віджеті Daily).
-- Calendar widget (Telegram right column): компонент `glass-calendar` перезібрано з нуля для стабільного layout (місяць + стрілки + 5-денна карусель), прибрано зайві нижні кнопки/лінію, підправлено відступи та пропорції капсул.
-- Calendar UX: коліщатко миші на каруселі перемикає дні; додано жорстке блокування wheel-прокрутки сторінки при hover над каруселлю.
-- Calendar UX: при відведенні курсора з каруселі - без анімації - повернення до поточного дня, якщо користувач відскролився “далеко” (поріг у днях).
-- Calendar header: рік у заголовку показується тільки для непоточного року; між місяцем і роком додано контрольований відступ.
-- Encoding fix: повторно виправлено зламані кириличні підписи в календарі (`Р...` -> нормальний UTF-8 текст для `uk/ru`).
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` - проходить.
-## Snapshot (2026-02-28) - launch stability / tray / logs
-
-### Закрито в цій сесії
-- Notes: прибрано застарілий пункт у відкритих питаннях про невидимі ефекти тем (вже виправлено).
-- Daily reminders/logs: виправлено зламаний текст у форматі `????...: <title>` у сповіщеннях і в "Останніх діях"; додано санітизацію логів при читанні/записі в `localStore`.
-- Telegram UI: нумерація карток акаунтів тепер показує глобальний номер із повного списку навіть під фільтрами (з нотатками/хештегами/пошуком), а не `index+1` від видимого піднабору.
-- Telegram launch stop: виправлено сценарій "Завершити" під час масового запуску - додано backend cancel-команду (`request_telegram_launch_cancel`) і інтеграцію у фронт; нові інстанси не повинні продовжувати старт після скасування.
-- Tauri/Tray: додано `tauri-plugin-single-instance`; повторний запуск із ярлика тепер фокусує існуючий інстанс замість створення другого процесу/другої іконки в треї.
-- Telegram launch reliability: реалізовано `health-check + 1 quick retry` після кожного батчу (у т.ч. перший батч і продовження по F6) для профілів, що "відпали" одразу після старту.
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` - проходить.
-- `cargo check` - проходить.
-
-### Поточний статус / Ризики
-- Quick retry зараз завжди увімкнений (константи в коді); за потреби можна винести в Settings як перемикач.
-- Значення "запущено" у тостах після батчу показує фактично живі інстанси після quick retry, тоді як прогрес батчу рахується по оброблених профілях.
-## Snapshot (2026-02-29) — responsive polish
-
-### Закрито в цій сесії
-- Telegram layout: прибрано макс-ширину/стиснуту праву колонку, тому віджети знову розтягуються на весь екран, але попередні `gap`/spacing збереглись.
-- Calendar widget: зроблено компактні кнопки без крапок і щільними падінгами (`text-xs`, `px-2 py-0.5`), плюс дерево дивиться одразу під чолкою без зайвих відступів.
-- Window controls: однаковий розмір/сontrast, один strokeWidth, прибране субпіксельне `translate`, стартове вікно `1102x716` відцентровано.
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` — проходить.
-## Snapshot (2026-02-27) — i18n/Settings UI polishing
-
-### Закрито в цій сесії
-- i18n: доведено мультимовність інтерфейсу (uk/en/ru) у ключових модулях Telegram/модалках/віджетах, виправлено залишки хардкоду.
-- Encoding fix: виправлено зламані рядки `����...` у модальних вікнах (`AuthOnboardingModal`, `CustomLinkModal`, `ProjectModal`) та календарних віджетах (`glass-calendar`, `visualize-booking`) з переведенням у UTF-8.
-- Daily Tasks: заголовок віджета зафіксовано як `Daily` (без перекладу за вимогою).
-- Telegram: локалізовано залишок бейджа `link` і alt для іконки blocked-стану.
-- Settings/UI: селект мови переведено з нативного `<select>` на дизайн-системний `Select`; виправлено стилізацію дропдауна та вирівнювання стрілки.
-- Settings/UI: картку мови перенесено вниз сторінки налаштувань; прибрано підписи під селектом мови; заголовок змінено на `Мова`.
-- Settings/UI: прибрано допоміжні описи для полів Telegram/Chrome (про потоки та шляхи до папок).
-- Settings/UI: прибрано підзаголовок сторінки `Керування параметрами системи`.
-
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
-### Перевірки
-- `npm run check` — проходить.
-
-### Поточний статус / Ризики
-- Основні видимі `����...` у використаних компонентах виправлені.
-- Потенційно можуть лишатися англомовні `sr-only` підписи у базових `ui/*` компонентах (accessibility), якщо потрібна повна локалізація цього шару.
-# Next Session Plan - Abuse-App
+﻿# Next Session Plan - Abuse-App
 
 ## Snapshot (2026-02-27) — ефекти тем
 
@@ -128,11 +11,11 @@
 - UI: прибрано `bg-black` та inline `backgroundColor` з основних сторінок (Telegram/Settings/Chrome/NotFound), фон перенесено на `body` в App.
 - Dev: прибрано залежності `tsparticles` і `@tsparticles/react`.
 
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
+
+### Відкриті питання
+- Ефекти все ще не видно під контентом — потрібна подальша діагностика шарів/фонів.
 
 ## Snapshot (2026-02-27)
 
@@ -144,9 +27,6 @@
 - Themes: інтегровано tsParticles (Winter/Spring/Summer/Autumn), увімкнено перемикачі сезонів у налаштуваннях, виправлено ініціалізацію через `initParticlesEngine` та фіксований контейнер.
 - Dev: після оновлення Node до 25.6.1 перебудовано `better-sqlite3`; у `server/index.ts` прибрано `reusePort` і змінено host на `127.0.0.1` для Windows.
 
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -162,9 +42,6 @@
 - Картки акаунтів у Telegram: показ нумерації 1..N, hover-підміна на `account.name`, кнопка копіювання назви з’являється при наведенні.
 - Виправлено кодування `notes/next-session.md` (UTF-8).
 
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
@@ -188,9 +65,6 @@
   - `src-tauri/target/release/bundle/nsis/AbuseApp_1.0.2_x64-setup.exe`
   - `src-tauri/target/release/bundle/msi/AbuseApp_1.0.2_x64_en-US.msi`
 
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `cargo check` — проходить.
 - `npm run check` — проходить.
@@ -209,14 +83,96 @@
 - Telegram UI: хрестик видалення хештегу показується лише при наведенні на сам хештег.
 - Telegram UI: плейсхолдер пошуку змінено на “Пошук”; лупа ховається при фокусі, відступ зліва прибирається під час вводу.
 
-- Telegram / Mass launch UI reset: додано авто-скидання віджета масового запуску після ручного закриття Telegram-вікон поза додатком (орієнтація на реальні запущені процеси, а не лише локальний React-стан).
-- Telegram / Mass launch UI reset: під час активних batch-маркерів додано короткий polling (`~1.5s`) з перевіркою running-процесів; якщо процесів не залишилось — повний reset launch-сесії + `localStore.clearTelegramLaunchState()`.
-- Telegram / Finish flow hardening: підтверджено стабільну роботу `Finish` після race-condition правок (cancel/stop guard-и, fallback close, stop barrier), повторний старт батчу після stop більше не має відбуватись.
 ### Перевірки
 - `npm run check` — проходить.
 
+## Snapshot (2026-03-04) - Chrome page: close by window handle, batch UX rollback, Open all by threads
 
+### Done in this session
+- Chrome / Windows close behavior: replaced single-profile close flow with HWND + WM_CLOSE approach (no forced process kill in single-close flow).
+- Chrome / single-close stability: added window-handle caching on launch and improved close reliability with retries.
+- Chrome / account card UX: reduced open/close button flicker by stabilizing pending-state reconciliation with polling.
+- Chrome / Recent actions widget: hidden technical lines "Chrome launch:*" and "Chrome close:*" from the Chrome Recent actions feed.
+- Chrome / project select UX: added and then conditioned "Clear selection" item (shown only when a project is selected).
+- Chrome / custom-link flow: implemented and then fully removed by request (including modal, state, and related launch plumbing).
+- Chrome / mass-launch rollback: removed previously added custom/mass-launch range logic per request; kept core card-based open/close behavior.
+- Chrome / Open all button: added in Mass launch widget with Telegram-like visual style and placement in the header row.
+- Chrome / Open all behavior: reworked to respect Chrome Threads ("Opened simultaneously") and run in batches.
+- Chrome / batch controls: progress bar + Continue + Finish restored for the Open-all session flow.
+- Chrome / Finish reliability: aligned close retries in batch actions with per-card close behavior (multi-attempt with short backoff).
 
+### Verification
+- npm run check - passed multiple times after frontend changes.
+- cargo check - passed after Rust/Tauri changes.
 
+## Snapshot (2026-03-04) - Chrome Mass launch parity with Telegram, custom-link flow, batch finishing polish
 
+### Done in this session
+- Chrome / Finish action: fixed batch finish close detection so `Finish` closes recently opened profiles reliably (fresh running-profile read + active batch state fallback).
+- Chrome / Mass launch project UX: replaced temporary "Add project" header button with Telegram-like project row inside widget.
+- Chrome / Project row: added Select with project list, `Custom link`, and conditional `Clear selection` (visible only when something is selected).
+- Chrome / Add project: wired `+` button in project row to `ProjectModal` for Chrome-only projects.
+- Chrome / Custom link: wired `CustomLinkModal` in Chrome flow and connected selected/custom URL to profile launch target.
+- Chrome / Custom link validation: added generic URL mode for Chrome (`http/https`), keeping Telegram validation intact for Telegram mode.
+- Chrome / Modal placeholders: replaced Telegram-specific placeholder with neutral URL placeholder on Chrome (`https://example.com`).
+- Chrome / Keyboard flow: after saving custom link, focus jumps to `Start`; Enter in `Start` moves to `End`; Enter in `End` launches.
+- Chrome / Mass launch controls: added `Start`, `End`, `Enable "Mix" mode`, and `Launch` button with Telegram-like styling/behavior.
+- Chrome / Range launch logic: launch by ordinal range over sorted available (non-blocked) profiles; optional shuffle when Mix is enabled.
+- Chrome / Layout parity: aligned Mass launch widget structure to Telegram (`space-y-4` form area + separate bottom actions area).
+- Chrome / Open all visibility: `Open all` no longer disappears while batch session is active.
+- Chrome / Open all autofill: on `Open all`, auto-fills `Start=1`, `End=<available profiles count>`, and sets select label to `Opening all`.
+- Chrome / Finish reset: after `Finish`, Mass launch widget state is fully reset (project, range, custom link, batch state); Mix defaults back to enabled.
+- Chrome / Continue button visibility: `Continue` now renders only when there are actual pending profiles left to open (handles pre-opened accounts correctly).
+- Chrome / Range autofill fix: removed misleading max-ID range (`...159` style); range now reflects launch-order positions.
 
+### Verification
+- `npm run check` - passed after each logical change batch.
+
+## Snapshot (2026-03-04) - Chrome follow-up fixes (status sync, stats refresh, batch UX)
+
+### Done in this session
+- Chrome / account card status sync: fixed stale `X` state after manual browser-window close (outside the app) by improving running-profile reconciliation.
+- Chrome / pending-state cleanup: hardened pending-state expiration so external/manual close no longer keeps card in active state.
+- Chrome / Stats widget: added Telegram-like refresh icon button in Accounts stats widget (top-right), with in-flight lock and spin animation.
+- Chrome / Open all UX: kept `Open all` button always visible during batch session.
+- Chrome / Open all autofill: project select now shows `Opening all`; range fields auto-fill using launch-order positions.
+- Chrome / range semantics: switched Start/End handling to ordinal positions over available (non-blocked) accounts; removed confusing max-id behavior.
+- Chrome / batch actions: when there is nothing left to continue, `Continue` button is hidden and only `Finish` remains.
+- Chrome / custom-link flow: after saving custom link, focus jumps to `Start`; Enter -> `End`; Enter -> launch.
+
+### Verification
+- `npm run check` - passed after each fix.
+
+## Snapshot (2026-03-05) - Оновлення чолки, панелі тем, логів
+
+### Зроблено в цій сесії
+- Чолка / правий блок: об'єднано капсулу теми та капсулу кнопок керування вікном в одну капсулу.
+- Чолка / іконка теми: прибрано підсвітку фону при наведенні (`hover:bg-transparent active:bg-transparent`).
+- Панель тем / картки ефектів: повернуто фон активної картки (`bg-primary/10`).
+- Панель тем / прев'ю: прибрано зайвий фон під міні-віджетами (`.theme-preview-surface` має прозорий фон і без blur).
+- Панель тем / тексти: виправлено поламані рядки в `ThemeControlPanel.tsx` (`Тема`, `Ефекти`, `Закрити`, `Поки що немає тем`, `Увімкнути/Вимкнути`).
+- Віджет "Останні дії": виправлено поламані локалізовані рядки в `LogsPanel.tsx`.
+- Telegram / кастомне посилання: прибрано дубльований запис у логах на етапі додавання посилання.
+- Результат у логах: для кастомного посилання лишається `Запущено <name>`, а після завершення `Завершено <name>`.
+
+### Змінені файли
+- `client/src/App.tsx`
+- `client/src/index.css`
+- `client/src/components/ThemeControlPanel.tsx`
+- `client/src/components/LogsPanel.tsx`
+- `client/src/pages/Telegram.tsx`
+
+### Перевірка
+- `npm run check` - пройшов після кожного блоку змін.
+
+## Snapshot (2026-03-05) - Sidebar: візуальні лінії
+
+### Зроблено в цій сесії
+- Sidebar: прибрано ліву лінію-індикатор активного пункту для іконок Telegram/Chrome/Календар/Налаштування.
+- Sidebar: прибрано лінію-розділювач між блоком логотипа та списком іконок (між логотипом і Telegram).
+
+### Змінені файли
+- `client/src/components/Sidebar.tsx`
+
+### Перевірка
+- `npm run check` - пройшов.

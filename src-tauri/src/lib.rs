@@ -1,7 +1,9 @@
-﻿use std::collections::HashSet;
+﻿use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
+use rand::seq::SliceRandom;
 use sysinfo::System;
 use tauri::Emitter;
 use tauri::Manager;
@@ -13,11 +15,18 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use windows_sys::Win32::System::Console::FreeConsole;
 #[cfg(windows)]
 use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetClassNameW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW,
+    WM_CLOSE,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
 
 static TELEGRAM_LAUNCH_CANCELLED: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
+static CHROME_PROFILE_HWNDS: OnceLock<Mutex<HashMap<String, isize>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TelegramLink {
@@ -42,10 +51,28 @@ struct AppSettings {
     telegram_threads: String,
     #[serde(rename = "telegramFolderPath", default)]
     telegram_folder_path: String,
+    #[serde(rename = "telegramLaunchSpeed", default)]
+    telegram_launch_speed: String,
     #[serde(rename = "chromeThreads", default)]
     chrome_threads: String,
     #[serde(rename = "chromeFolderPath", default)]
     chrome_folder_path: String,
+}
+
+fn normalize_launch_speed_profile(raw: &str) -> &'static str {
+    match raw.trim().to_lowercase().as_str() {
+        "fast" => "fast",
+        "balanced" => "balanced",
+        _ => "conservative",
+    }
+}
+
+fn launch_spawn_delays_ms(settings: &AppSettings) -> (u64, u64) {
+    match normalize_launch_speed_profile(&settings.telegram_launch_speed) {
+        "fast" => (1200, 700),
+        "balanced" => (2000, 1200),
+        _ => (3000, 2000),
+    }
 }
 
 fn settings_file_path() -> PathBuf {
@@ -161,6 +188,547 @@ fn list_running_telegram_processes() -> Vec<(u32, String, String)> {
             Some((pid_num, name, path))
         })
         .collect()
+}
+
+fn parse_cli_arg(parts: &[String], flag: &str) -> Option<String> {
+    let prefix = format!("{flag}=");
+    for i in 0..parts.len() {
+        let part = parts[i].trim();
+        if part == flag {
+            if let Some(next) = parts.get(i + 1) {
+                let value = next.trim().trim_matches('"').to_string();
+                if !value.is_empty() {
+                    return Some(value);
+                }
+            }
+            continue;
+        }
+
+        if let Some(raw_value) = part.strip_prefix(&prefix) {
+            let value = raw_value.trim().trim_matches('"').to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn parse_cmd_arg_value_joined(parts: &[String], flag: &str) -> Option<String> {
+    let joined = parts.join(" ");
+    let parse_tail = |tail: &str| -> Option<String> {
+        let rest = tail.trim_start();
+        if rest.is_empty() {
+            return None;
+        }
+
+        if let Some(stripped) = rest.strip_prefix('"') {
+            let end = stripped.find('"')?;
+            return Some(stripped[..end].to_string());
+        }
+
+        let mut split = rest.split_whitespace();
+        let first = split.next()?.trim_matches('"').to_string();
+        if first.eq_ignore_ascii_case("profile") {
+            if let Some(second) = split.next() {
+                let second_clean = second.trim_matches('"');
+                if second_clean.chars().all(|ch| ch.is_ascii_digit()) {
+                    return Some(format!("Profile {}", second_clean));
+                }
+            }
+        }
+        Some(first)
+    };
+
+    let mut search_from = 0usize;
+    while let Some(rel_idx) = joined[search_from..].find(flag) {
+        let idx = search_from + rel_idx;
+        let prev_ok = if idx == 0 {
+            true
+        } else {
+            joined[..idx]
+                .chars()
+                .next_back()
+                .map(|ch| ch.is_whitespace())
+                .unwrap_or(true)
+        };
+        if !prev_ok {
+            search_from = idx + flag.len();
+            continue;
+        }
+
+        let after = &joined[(idx + flag.len())..];
+        if let Some(tail) = after.strip_prefix('=') {
+            return parse_tail(tail);
+        }
+        if after.chars().next().map(|ch| ch.is_whitespace()).unwrap_or(false) {
+            return parse_tail(after);
+        }
+
+        search_from = idx + flag.len();
+    }
+
+    None
+}
+
+fn parse_profile_directory_arg(parts: &[String]) -> Option<String> {
+    let raw = parse_cli_arg(parts, "--profile-directory")
+        .or_else(|| parse_cmd_arg_value_joined(parts, "--profile-directory"))?;
+
+    if raw.eq_ignore_ascii_case("profile") {
+        let joined = parts.join(" ");
+        let marker = "--profile-directory=";
+        if let Some(idx) = joined.find(marker) {
+            let tail = joined[(idx + marker.len())..].trim_start();
+            let mut split = tail.split_whitespace();
+            let first = split.next().unwrap_or_default();
+            if first.eq_ignore_ascii_case("profile") {
+                if let Some(second) = split.next() {
+                    let second_clean = second.trim_matches('"');
+                    if second_clean.chars().all(|ch| ch.is_ascii_digit()) {
+                        return Some(format!("Profile {}", second_clean));
+                    }
+                }
+            }
+        }
+    }
+
+    Some(raw.trim_matches('"').to_string())
+}
+
+fn parse_user_data_dir_arg(parts: &[String]) -> Option<String> {
+    parse_cli_arg(parts, "--user-data-dir")
+        .or_else(|| parse_cmd_arg_value_joined(parts, "--user-data-dir"))
+        .map(|value| value.trim_matches('"').to_string())
+}
+
+fn cmd_matches_user_data_scope(parts: &[String], expected_norm: &str) -> bool {
+    let from_cmd = parse_user_data_dir_arg(parts)
+        .map(|value| normalize_path_for_match(&value));
+    if let Some(norm) = from_cmd {
+        return norm == expected_norm;
+    }
+
+    let default_norm = default_chrome_user_data_dir()
+        .map(|path| normalize_path_for_match(&path.to_string_lossy()));
+    default_norm
+        .as_deref()
+        .map(|norm| norm == expected_norm)
+        .unwrap_or(false)
+}
+
+fn cmd_matches_user_data_scope_or_unknown(parts: &[String], expected_norm: &str) -> bool {
+    if parse_user_data_dir_arg(parts).is_none() {
+        return true;
+    }
+    cmd_matches_user_data_scope(parts, expected_norm)
+}
+
+fn resolve_chrome_exe() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(PathBuf::from(program_files).join("Google\\Chrome\\Application\\chrome.exe"));
+    }
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        candidates.push(PathBuf::from(program_files_x86).join("Google\\Chrome\\Application\\chrome.exe"));
+    }
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn default_chrome_user_data_dir() -> Option<PathBuf> {
+    let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
+    Some(PathBuf::from(local_app_data).join("Google\\Chrome\\User Data"))
+}
+
+fn list_running_chrome_processes() -> Vec<(u32, String, String, Vec<String>)> {
+    #[cfg(windows)]
+    {
+        if let Some(processes) = list_running_chrome_processes_windows() {
+            return processes;
+        }
+    }
+
+    let mut system = System::new_all();
+    system.refresh_processes();
+
+    system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            let name = process.name().to_string();
+            let path = process
+                .exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let name_lower = name.to_lowercase();
+            let path_lower = path.to_lowercase();
+            let is_chrome = name_lower == "chrome.exe"
+                || name_lower == "chrome"
+                || path_lower.ends_with("\\chrome.exe")
+                || path_lower.ends_with("/chrome");
+
+            if !is_chrome {
+                return None;
+            }
+
+            let pid_num = pid.to_string().parse::<u32>().unwrap_or(0);
+            let cmd = process
+                .cmd()
+                .iter()
+                .map(|arg| arg.to_string())
+                .collect::<Vec<_>>();
+
+            Some((pid_num, name, path, cmd))
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn list_running_chrome_processes_windows() -> Option<Vec<(u32, String, String, Vec<String>)>> {
+    use std::process::Command;
+
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$items = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Select-Object ProcessId, CommandLine, ExecutablePath
+$items | ConvertTo-Json -Compress
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Some(Vec::new());
+    }
+
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let mut result: Vec<(u32, String, String, Vec<String>)> = Vec::new();
+
+    let push_item = |item: &serde_json::Value, out: &mut Vec<(u32, String, String, Vec<String>)>| {
+        let pid_u64 = item.get("ProcessId").and_then(|v| v.as_u64()).unwrap_or(0);
+        let pid = u32::try_from(pid_u64).unwrap_or(0);
+        if pid == 0 {
+            return;
+        }
+        let cmd_line = item
+            .get("CommandLine")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let exe_path = item
+            .get("ExecutablePath")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push((pid, "chrome.exe".to_string(), exe_path, vec![cmd_line]));
+    };
+
+    match json {
+        serde_json::Value::Array(items) => {
+            for item in &items {
+                push_item(item, &mut result);
+            }
+        }
+        serde_json::Value::Object(_) => {
+            push_item(&json, &mut result);
+        }
+        _ => {}
+    }
+
+    Some(result)
+}
+
+#[cfg(windows)]
+fn find_chrome_pids_by_profile_windows(profile_name: &str) -> Option<Vec<u32>> {
+    use std::process::Command;
+
+    let escaped_profile = profile_name.replace('\'', "''");
+    let script = format!(
+        r#"
+$profile = '{escaped_profile}'
+$items = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Select-Object ProcessId, ParentProcessId, CommandLine
+$parentMap = @{{}}
+foreach ($item in $items) {{
+  $parentMap[[int]$item.ProcessId] = [int]$item.ParentProcessId
+}}
+$result = @()
+foreach ($item in $items) {{
+  $cmd = [string]$item.CommandLine
+  if ([string]::IsNullOrWhiteSpace($cmd)) {{ continue }}
+  $name = $null
+  if ($cmd -match '--profile-directory=(?:"([^"]+)"|(.+?))(?=\s--|$)') {{
+    $name = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }} elseif ($cmd -match '--profile-directory\s+(?:"([^"]+)"|(.+?))(?=\s--|$)') {{
+    $name = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }}
+  if ($name) {{ $name = $name.Trim() }}
+  if ($name) {{
+    if ($name -ieq 'Profile' -and $cmd -match '--profile-directory(?:=|\s+)Profile\s+(\d+)(?=\s--|$)') {{
+      $name = 'Profile ' + $matches[1]
+    }}
+    if ($name -ieq $profile) {{
+      $pid = [int]$item.ProcessId
+      $result += $pid
+
+      $safety = 0
+      $parent = $parentMap[$pid]
+      while ($parent -and $parentMap.ContainsKey($parent) -and $safety -lt 16) {{
+        $result += [int]$parent
+        $parent = $parentMap[$parent]
+        $safety++
+      }}
+    }}
+  }}
+}}
+$result | Sort-Object -Unique | ConvertTo-Json -Compress
+"#
+    );
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return Some(Vec::new());
+    }
+
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let mut pids: Vec<u32> = Vec::new();
+    match json {
+        serde_json::Value::Array(items) => {
+            for item in &items {
+                if let Some(num) = item.as_u64() {
+                    if let Ok(pid) = u32::try_from(num) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Number(num) => {
+            if let Some(raw) = num.as_u64() {
+                if let Ok(pid) = u32::try_from(raw) {
+                    pids.push(pid);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Some(pids)
+}
+
+#[cfg(windows)]
+fn kill_pid_windows_force(pid: u32) -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let taskkill_soft_ok = Command::new("taskkill")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/T", "/PID", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if taskkill_soft_ok {
+        return true;
+    }
+
+    let close_main_window_ok = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "$p=Get-Process -Id {} -ErrorAction SilentlyContinue; if($p){{$null=$p.CloseMainWindow(); Start-Sleep -Milliseconds 700; if(-not (Get-Process -Id {} -ErrorAction SilentlyContinue)){{exit 0}}}}; exit 1",
+                pid, pid
+            ),
+        ])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if close_main_window_ok {
+        return true;
+    }
+
+    let taskkill_ok = Command::new("taskkill")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if taskkill_ok {
+        return true;
+    }
+
+    Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("Stop-Process -Id {} -Force -ErrorAction SilentlyContinue", pid),
+        ])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn chrome_profile_hwnd_store() -> &'static Mutex<HashMap<String, isize>> {
+    CHROME_PROFILE_HWNDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(windows)]
+fn cache_profile_hwnd(profile_name: &str, hwnd: isize) {
+    if let Ok(mut guard) = chrome_profile_hwnd_store().lock() {
+        guard.insert(profile_name.to_string(), hwnd);
+    }
+}
+
+#[cfg(windows)]
+fn take_cached_profile_hwnd(profile_name: &str) -> Option<isize> {
+    chrome_profile_hwnd_store()
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.remove(profile_name))
+}
+
+#[cfg(windows)]
+fn get_cached_profile_hwnd(profile_name: &str) -> Option<isize> {
+    chrome_profile_hwnd_store()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.get(profile_name).copied())
+}
+
+#[cfg(windows)]
+fn list_visible_chrome_windows() -> Vec<(isize, u32)> {
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+
+    struct EnumCtx {
+        out: Vec<(isize, u32)>,
+    }
+
+    unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam as *mut EnumCtx);
+        if IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+
+        let mut class_buf = [0u16; 256];
+        let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+        if class_len <= 0 {
+            return 1;
+        }
+        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+        if class_name != "Chrome_WidgetWin_1" {
+            return 1;
+        }
+
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return 1;
+        }
+
+        ctx.out.push((hwnd as isize, pid));
+        1
+    }
+
+    let mut ctx = Box::new(EnumCtx { out: Vec::new() });
+    unsafe {
+        EnumWindows(Some(enum_windows_cb), (&mut *ctx as *mut EnumCtx) as LPARAM);
+    }
+    ctx.out
+}
+
+#[cfg(windows)]
+fn list_visible_chrome_window_handles() -> Vec<isize> {
+    list_visible_chrome_windows()
+        .into_iter()
+        .map(|(hwnd, _)| hwnd)
+        .collect()
+}
+
+#[cfg(windows)]
+fn post_wm_close(hwnd_raw: isize) -> bool {
+    let hwnd = hwnd_raw;
+    if unsafe { IsWindow(hwnd) } == 0 {
+        return false;
+    }
+    unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) != 0 }
+}
+
+#[cfg(windows)]
+fn cache_chrome_window_for_profile(profile_name: &str) {
+    let Some(pid_list) = find_chrome_pids_by_profile_windows(profile_name) else {
+        return;
+    };
+    if pid_list.is_empty() {
+        return;
+    }
+
+    let pid_set: HashSet<u32> = pid_list.into_iter().collect();
+    let windows = list_visible_chrome_windows();
+    if let Some((hwnd, _)) = windows.iter().rev().find(|(_, pid)| pid_set.contains(pid)) {
+        cache_profile_hwnd(profile_name, *hwnd);
+    }
+}
+
+#[cfg(windows)]
+fn close_chrome_profile_windows(profile_name: &str) -> Option<bool> {
+    use std::thread;
+    use std::time::Duration;
+    if get_cached_profile_hwnd(profile_name).is_none() {
+        cache_chrome_window_for_profile(profile_name);
+    }
+
+    let Some(cached_hwnd) = get_cached_profile_hwnd(profile_name) else {
+        return Some(false);
+    };
+    if !post_wm_close(cached_hwnd) {
+        let _ = take_cached_profile_hwnd(profile_name);
+        return Some(false);
+    }
+
+    thread::sleep(Duration::from_millis(900));
+    if unsafe { IsWindow(cached_hwnd) } == 0 {
+        let _ = take_cached_profile_hwnd(profile_name);
+        return Some(true);
+    }
+
+    Some(true)
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ChromeLaunchResult {
+    selected: usize,
+    started: usize,
+    skipped: usize,
+    failed: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ChromeCloseResult {
+    target: usize,
+    closed: usize,
 }
 
 fn normalize_path_for_match(value: &str) -> String {
@@ -332,6 +900,11 @@ pub fn run() {
       request_telegram_launch_cancel,
       close_single_account,
       get_running_telegram_processes,
+      launch_chrome_profiles,
+      close_chrome_profiles,
+      get_running_chrome_profiles,
+      launch_single_chrome_profile,
+      close_single_chrome_profile,
       send_reminder_notification
     ])
     .run(tauri::generate_context!())
@@ -419,6 +992,8 @@ async fn launch_accounts_batch(
     use std::process::Command;
     use rand::seq::SliceRandom;
     TELEGRAM_LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
+    let settings = load_settings_from_disk();
+    let (post_spawn_wait_ms, post_link_wait_ms) = launch_spawn_delays_ms(&settings);
 
     println!("[LOG] Start batch launch for TG accounts");
     println!("[LOG] Range: {}-{}", start_range, end_range);
@@ -441,7 +1016,6 @@ async fn launch_accounts_batch(
     }
 
     let mut launched_pids = Vec::new();
-    let settings = load_settings_from_disk();
     let batch_size = settings
         .telegram_threads
         .trim()
@@ -477,7 +1051,7 @@ async fn launch_accounts_batch(
                 Ok(_child) => {
                     launched_pids.push(_child.id());
                     println!("[LOG] TG {} launched without params", profile_num);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(post_spawn_wait_ms)).await;
                 }
                 Err(e) => {
                     println!("[LOG] Launch error {}: {}", telegram_exe_path.display(), e);
@@ -501,7 +1075,7 @@ async fn launch_accounts_batch(
             {
                 Ok(_child) => {
                     println!("TG {} launched with params {}.", profile_num, link);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(post_link_wait_ms)).await;
                 }
                 Err(e) => {
                     println!("[LOG] Launch with params failed for TG {}: {}", profile_num, e);
@@ -531,6 +1105,8 @@ async fn launch_accounts_for_profiles(
 ) -> Result<Vec<u32>, String> {
     use std::process::Command;
     TELEGRAM_LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
+    let settings = load_settings_from_disk();
+    let (post_spawn_wait_ms, post_link_wait_ms) = launch_spawn_delays_ms(&settings);
 
     println!("[LOG] Start batch launch for custom profile list");
     println!("[LOG] Profiles: {:?}", profile_ids);
@@ -567,7 +1143,7 @@ async fn launch_accounts_for_profiles(
                 Ok(_child) => {
                     launched_pids.push(_child.id());
                     println!("[LOG] TG {} launched without params", profile_num);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(post_spawn_wait_ms)).await;
                 }
                 Err(e) => {
                     println!("[LOG] Launch error {}: {}", telegram_exe_path.display(), e);
@@ -591,7 +1167,7 @@ async fn launch_accounts_for_profiles(
             {
                 Ok(_child) => {
                     println!("TG {} launched with params {}.", profile_num, link);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(post_link_wait_ms)).await;
                 }
                 Err(e) => {
                     println!("[LOG] Launch with params failed for TG {}: {}", profile_num, e);
@@ -681,45 +1257,42 @@ async fn build_telegram_link(link_params: TelegramLink) -> Result<String, String
     );
 
     let mut link = format!("tg://resolve?domain={}", link_params.app_name);
-    
-    if !link_params.app_type.is_empty() {
-        link += &format!("&appname={}", link_params.app_type);
-        
-        // Extract startapp parameter from ref_link if it contains a full URL
-        let startapp_value = if !link_params.ref_link.is_empty() {
-            if link_params.ref_link.contains("startapp=") {
-                // Extract startapp value from URL
-                if let Ok(url) = url::Url::parse(&link_params.ref_link) {
-                    url.query_pairs()
-                        .find(|(key, _)| key == "startapp")
-                        .map(|(_, value)| value.to_string())
-                        .unwrap_or_else(|| {
-                            println!("[LOG] Failed to extract startapp, using ref_link as is");
-                            link_params.ref_link.clone()
-                        })
-                } else {
-                    println!("[LOG] Failed to parse URL, using ref_link as is");
-                    link_params.ref_link.clone()
-                }
+    let app_type = link_params.app_type.trim();
+    let raw_ref_link = link_params.ref_link.trim();
+
+    if !app_type.is_empty() {
+        link += &format!("&appname={}", app_type);
+
+        // Extract startapp/start payload from a full URL when possible.
+        let payload = if raw_ref_link.is_empty() {
+            String::new()
+        } else if raw_ref_link.contains("startapp=") || raw_ref_link.contains("start=") {
+            if let Ok(url) = url::Url::parse(raw_ref_link) {
+                url.query_pairs()
+                    .find(|(key, _)| key == "startapp" || key == "start")
+                    .map(|(_, value)| value.to_string())
+                    .unwrap_or_else(|| {
+                        println!("[LOG] Failed to extract startapp/start, using ref_link as is");
+                        raw_ref_link.to_string()
+                    })
             } else {
-                link_params.ref_link.clone()
+                println!("[LOG] Failed to parse URL, using ref_link as is");
+                raw_ref_link.to_string()
             }
         } else {
-            String::new()
+            raw_ref_link.to_string()
         };
-        
-        if !startapp_value.is_empty() {
-            link += &format!("&startapp={}", startapp_value);
+
+        if !payload.is_empty() {
+            link += &format!("&startapp={}", payload);
         } else {
-            link += "&startapp";
+            println!("[LOG] app_type provided without payload, using appname only");
         }
-    } else {
-        if !link_params.ref_link.is_empty() {
-            link += &format!("&start={}", link_params.ref_link);
-        } else {
-            link += "&start";
-        }
+    } else if !raw_ref_link.is_empty() {
+        link += &format!("&start={}", raw_ref_link);
         println!("[LOG] Using start without app_type");
+    } else {
+        println!("[LOG] No app_type/ref_link payload, using domain-only resolve link");
     }
 
     println!("[LOG] Final link: {}", link);
@@ -741,6 +1314,9 @@ async fn save_settings(settings: serde_json::Value) -> Result<(), String> {
     }
     if let Some(v) = settings.get("telegramFolderPath").and_then(|v| v.as_str()) {
         current.telegram_folder_path = v.to_string();
+    }
+    if let Some(v) = settings.get("telegramLaunchSpeed").and_then(|v| v.as_str()) {
+        current.telegram_launch_speed = v.to_string();
     }
     if let Some(v) = settings.get("chromeThreads").and_then(|v| v.as_str()) {
         current.chrome_threads = v.to_string();
@@ -1398,6 +1974,358 @@ async fn get_running_telegram_processes() -> Result<Vec<serde_json::Value>, Stri
 
     Ok(processes)
 }
+
+#[tauri::command]
+async fn launch_chrome_profiles(
+    chrome_folder_path: String,
+    start_range: i32,
+    end_range: i32,
+    mixed: bool,
+    target_url: Option<String>,
+) -> Result<ChromeLaunchResult, String> {
+    use std::process::Command;
+
+    if start_range <= 0 || end_range <= 0 || end_range < start_range {
+        return Err("Invalid range for Chrome profiles".to_string());
+    }
+
+    let chrome_exe = resolve_chrome_exe()
+        .ok_or_else(|| "Chrome executable was not found in Program Files".to_string())?;
+
+    let user_data_dir = if chrome_folder_path.trim().is_empty() {
+        default_chrome_user_data_dir()
+            .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?
+    } else {
+        PathBuf::from(chrome_folder_path.trim())
+    };
+
+    if !user_data_dir.exists() {
+        return Err(format!(
+            "Chrome profiles directory not found: {}",
+            user_data_dir.to_string_lossy()
+        ));
+    }
+
+    let mut profiles: Vec<(i32, String)> = fs::read_dir(&user_data_dir)
+        .map_err(|e| format!("Failed to read Chrome profiles directory: {e}"))?
+        .flatten()
+        .filter_map(|entry| {
+            let is_dir = entry.file_type().ok()?.is_dir();
+            if !is_dir {
+                return None;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("Profile ") {
+                return None;
+            }
+            let num = name
+                .strip_prefix("Profile ")
+                .and_then(|raw| raw.parse::<i32>().ok())?;
+            if num < start_range || num > end_range {
+                return None;
+            }
+            Some((num, name))
+        })
+        .collect();
+
+    profiles.sort_by_key(|(num, _)| *num);
+    if mixed {
+        let mut rng = rand::thread_rng();
+        profiles.shuffle(&mut rng);
+    }
+
+    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    let mut opened_profiles: HashSet<String> = HashSet::new();
+    for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
+        if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
+            continue;
+        }
+        if let Some(profile) = parse_profile_directory_arg(&cmd) {
+            opened_profiles.insert(profile);
+        }
+    }
+
+    let mut started = 0usize;
+    let mut skipped = 0usize;
+    let mut failed = 0usize;
+    let url = target_url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    for (_num, profile_name) in &profiles {
+        if opened_profiles.contains(profile_name) {
+            skipped += 1;
+            continue;
+        }
+        #[cfg(windows)]
+        let before_hwnds: HashSet<isize> = list_visible_chrome_window_handles().into_iter().collect();
+
+        let mut args = vec![
+            format!("--user-data-dir={}", user_data_dir.to_string_lossy()),
+            format!("--profile-directory={profile_name}"),
+        ];
+        if let Some(target) = &url {
+            args.push(target.clone());
+        }
+
+        match Command::new(&chrome_exe).args(args).spawn() {
+            Ok(_) => {
+                started += 1;
+                opened_profiles.insert(profile_name.clone());
+                tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+                #[cfg(windows)]
+                {
+                    let mut cached = false;
+                    for _ in 0..12 {
+                        let after = list_visible_chrome_window_handles();
+                        if let Some(hwnd) = after.into_iter().find(|hwnd| !before_hwnds.contains(hwnd)) {
+                            cache_profile_hwnd(profile_name.as_str(), hwnd);
+                            cached = true;
+                            break;
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                    }
+                    if !cached {
+                        cache_chrome_window_for_profile(profile_name.as_str());
+                    }
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    Ok(ChromeLaunchResult {
+        selected: profiles.len(),
+        started,
+        skipped,
+        failed,
+    })
+}
+
+#[tauri::command]
+async fn close_chrome_profiles(chrome_folder_path: String) -> Result<ChromeCloseResult, String> {
+    let user_data_dir = if chrome_folder_path.trim().is_empty() {
+        default_chrome_user_data_dir()
+            .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?
+    } else {
+        PathBuf::from(chrome_folder_path.trim())
+    };
+
+    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    let mut system = System::new_all();
+    system.refresh_processes();
+
+    let target_pids: Vec<u32> = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            let name = process.name().to_string().to_lowercase();
+            if !(name == "chrome.exe" || name == "chrome") {
+                return None;
+            }
+            let cmd = process
+                .cmd()
+                .iter()
+                .map(|arg| arg.to_string())
+                .collect::<Vec<_>>();
+            if !cmd_matches_user_data_scope(&cmd, user_data_norm.as_str()) {
+                return None;
+            }
+            pid.to_string().parse::<u32>().ok()
+        })
+        .collect();
+
+    let mut closed = 0usize;
+    for pid in &target_pids {
+        #[cfg(target_os = "windows")]
+        {
+            if kill_pid_windows_force(*pid) {
+                closed += 1;
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::process::Command;
+            if Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+            {
+                closed += 1;
+            }
+        }
+    }
+
+    Ok(ChromeCloseResult {
+        target: target_pids.len(),
+        closed,
+    })
+}
+
+#[tauri::command]
+async fn get_running_chrome_profiles(chrome_folder_path: Option<String>) -> Result<Vec<String>, String> {
+    let user_data_dir = match chrome_folder_path {
+        Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
+        _ => default_chrome_user_data_dir()
+            .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?,
+    };
+    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+
+    let mut running: HashSet<String> = HashSet::new();
+    for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
+        if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
+            continue;
+        }
+        if let Some(profile) = parse_profile_directory_arg(&cmd) {
+            running.insert(profile);
+        }
+    }
+
+    let mut list = running.into_iter().collect::<Vec<_>>();
+    list.sort();
+    Ok(list)
+}
+
+#[tauri::command]
+async fn launch_single_chrome_profile(
+    chrome_folder_path: String,
+    profile_name: String,
+    target_url: Option<String>,
+) -> Result<bool, String> {
+    use std::process::Command;
+
+    let profile = profile_name.trim().to_string();
+    if profile.is_empty() {
+        return Err("Profile name is required".to_string());
+    }
+
+    let chrome_exe = resolve_chrome_exe()
+        .ok_or_else(|| "Chrome executable was not found in Program Files".to_string())?;
+    let user_data_dir = if chrome_folder_path.trim().is_empty() {
+        default_chrome_user_data_dir()
+            .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?
+    } else {
+        PathBuf::from(chrome_folder_path.trim())
+    };
+    let profile_dir = user_data_dir.join(&profile);
+    if !profile_dir.exists() {
+        return Err(format!("Profile directory not found: {}", profile_dir.to_string_lossy()));
+    }
+
+    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
+        if !cmd_matches_user_data_scope(&cmd, user_data_norm.as_str()) {
+            continue;
+        }
+        if let Some(cmd_profile) = parse_profile_directory_arg(&cmd) {
+            if cmd_profile == profile {
+                return Ok(false);
+            }
+        }
+    }
+
+    let mut args = vec![
+        format!("--user-data-dir={}", user_data_dir.to_string_lossy()),
+        format!("--profile-directory={profile}"),
+    ];
+    if let Some(url) = target_url {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            args.push(trimmed.to_string());
+        }
+    }
+
+    #[cfg(windows)]
+    let before_hwnds: HashSet<isize> = list_visible_chrome_window_handles().into_iter().collect();
+
+    Command::new(chrome_exe)
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("Failed to launch Chrome profile: {e}"))?;
+
+    #[cfg(windows)]
+    {
+        let mut cached = false;
+        for _ in 0..12 {
+            let after = list_visible_chrome_window_handles();
+            if let Some(hwnd) = after.into_iter().find(|hwnd| !before_hwnds.contains(hwnd)) {
+                cache_profile_hwnd(profile.as_str(), hwnd);
+                cached = true;
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        }
+        if !cached {
+            cache_chrome_window_for_profile(profile.as_str());
+        }
+    }
+
+    Ok(true)
+}
+
+#[tauri::command]
+async fn close_single_chrome_profile(
+    _chrome_folder_path: String,
+    profile_name: String,
+) -> Result<bool, String> {
+    let profile = profile_name.trim().to_string();
+    if profile.is_empty() {
+        return Err("Profile name is required".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        return Ok(close_chrome_profile_windows(profile.as_str()).unwrap_or(false));
+    }
+
+    #[cfg(not(windows))]
+    {
+        let user_data_dir = if _chrome_folder_path.trim().is_empty() {
+            default_chrome_user_data_dir()
+                .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?
+        } else {
+            PathBuf::from(_chrome_folder_path.trim())
+        };
+        let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+
+        let target_pids: Vec<u32> = list_running_chrome_processes()
+            .into_iter()
+            .filter_map(|(pid, _name, _path, cmd)| {
+                if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
+                    return None;
+                }
+                let cmd_profile = parse_profile_directory_arg(&cmd);
+                if cmd_profile.as_deref() != Some(profile.as_str()) {
+                    return None;
+                }
+                Some(pid)
+            })
+            .collect();
+
+        let mut closed_any = false;
+        for pid in target_pids {
+            use std::process::Command;
+            if Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+            {
+                closed_any = true;
+            }
+        }
+
+        return Ok(closed_any);
+    }
+}
+
+
 
 
 
