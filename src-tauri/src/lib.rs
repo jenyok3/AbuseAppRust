@@ -17,9 +17,15 @@ use windows_sys::Win32::System::Console::FreeConsole;
 use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, PostMessageW,
-    WM_CLOSE,
+    EnumWindows, GetClassNameW, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, OPEN_EXISTING,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, INVALID_HANDLE_VALUE};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 use serde::{Deserialize, Serialize};
@@ -27,6 +33,7 @@ use serde::{Deserialize, Serialize};
 static TELEGRAM_LAUNCH_CANCELLED: AtomicBool = AtomicBool::new(false);
 #[cfg(windows)]
 static CHROME_PROFILE_HWNDS: OnceLock<Mutex<HashMap<String, isize>>> = OnceLock::new();
+static APP_STARTED_AT: OnceLock<std::time::Instant> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TelegramLink {
@@ -227,17 +234,21 @@ fn parse_cmd_arg_value_joined(parts: &[String], flag: &str) -> Option<String> {
             return Some(stripped[..end].to_string());
         }
 
-        let mut split = rest.split_whitespace();
-        let first = split.next()?.trim_matches('"').to_string();
-        if first.eq_ignore_ascii_case("profile") {
-            if let Some(second) = split.next() {
-                let second_clean = second.trim_matches('"');
-                if second_clean.chars().all(|ch| ch.is_ascii_digit()) {
-                    return Some(format!("Profile {}", second_clean));
-                }
+        // Unquoted value can still contain spaces (e.g. --user-data-dir=C:\...\User Data).
+        // Read until next CLI flag marker (" --" or " /...") or end of command line.
+        let mut end = rest.len();
+        let bytes = rest.as_bytes();
+        for i in 0..bytes.len().saturating_sub(1) {
+            if bytes[i].is_ascii_whitespace() && (bytes[i + 1] == b'-' || bytes[i + 1] == b'/') {
+                end = i;
+                break;
             }
         }
-        Some(first)
+        let value = rest[..end].trim().trim_matches('"').to_string();
+        if value.is_empty() {
+            return None;
+        }
+        Some(value)
     };
 
     let mut search_from = 0usize;
@@ -271,6 +282,27 @@ fn parse_cmd_arg_value_joined(parts: &[String], flag: &str) -> Option<String> {
     None
 }
 
+fn normalize_profile_directory_name(raw: &str) -> String {
+    let trimmed = raw.trim().trim_matches('"').to_string();
+    let mut split = trimmed.split_whitespace();
+    let first = split.next().unwrap_or_default();
+    let second = split.next().unwrap_or_default().trim_matches('"');
+    let third = split.next();
+
+    if first.eq_ignore_ascii_case("profile")
+        && third.is_none()
+        && !second.is_empty()
+        && second.chars().all(|ch| ch.is_ascii_digit())
+    {
+        if let Ok(num) = second.parse::<u32>() {
+            return format!("Profile {}", num);
+        }
+        return format!("Profile {}", second);
+    }
+
+    trimmed
+}
+
 fn parse_profile_directory_arg(parts: &[String]) -> Option<String> {
     let raw = parse_cli_arg(parts, "--profile-directory")
         .or_else(|| parse_cmd_arg_value_joined(parts, "--profile-directory"))?;
@@ -293,7 +325,7 @@ fn parse_profile_directory_arg(parts: &[String]) -> Option<String> {
         }
     }
 
-    Some(raw.trim_matches('"').to_string())
+    Some(normalize_profile_directory_name(&raw))
 }
 
 fn parse_user_data_dir_arg(parts: &[String]) -> Option<String> {
@@ -302,15 +334,93 @@ fn parse_user_data_dir_arg(parts: &[String]) -> Option<String> {
         .map(|value| value.trim_matches('"').to_string())
 }
 
+fn parse_profile_from_user_data_dir_arg(parts: &[String]) -> Option<String> {
+    let user_data_dir = parse_user_data_dir_arg(parts)?;
+    let normalized = user_data_dir.trim().trim_matches('"').replace('\\', "/");
+    let last_segment = normalized
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if last_segment.is_empty() {
+        return None;
+    }
+    let candidate = normalize_profile_directory_name(last_segment);
+    let is_profile = candidate
+        .strip_prefix("Profile ")
+        .map(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit()))
+        .unwrap_or(false);
+    if is_profile {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn expand_windows_env_markers(value: &str) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    let mut out = String::new();
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] == '%' {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != '%' {
+                j += 1;
+            }
+            if j < chars.len() && j > i + 1 {
+                let key: String = chars[(i + 1)..j].iter().collect();
+                if let Ok(resolved) = std::env::var(&key) {
+                    out.push_str(&resolved);
+                } else {
+                    out.push('%');
+                    out.push_str(&key);
+                    out.push('%');
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn normalize_user_data_dir_for_scope(value: &str) -> String {
+    let raw = value.trim().trim_matches('"');
+    #[cfg(windows)]
+    let expanded = expand_windows_env_markers(raw);
+    #[cfg(not(windows))]
+    let expanded = raw.to_string();
+
+    let normalized = normalize_path_for_match(&expanded);
+    if normalized.is_empty() {
+        return normalized;
+    }
+
+    if let Ok(canonical) = std::fs::canonicalize(std::path::Path::new(&expanded)) {
+        let canonical_norm = normalize_path_for_match(&canonical.to_string_lossy());
+        if !canonical_norm.is_empty() {
+            return canonical_norm;
+        }
+    }
+
+    normalized
+}
+
 fn cmd_matches_user_data_scope(parts: &[String], expected_norm: &str) -> bool {
-    let from_cmd = parse_user_data_dir_arg(parts)
-        .map(|value| normalize_path_for_match(&value));
-    if let Some(norm) = from_cmd {
-        return norm == expected_norm;
+    if let Some(raw) = parse_user_data_dir_arg(parts) {
+        let candidates = vec![normalize_user_data_dir_for_scope(&raw)];
+        if candidates.iter().any(|norm| norm == expected_norm) {
+            return true;
+        }
+        return false;
     }
 
     let default_norm = default_chrome_user_data_dir()
-        .map(|path| normalize_path_for_match(&path.to_string_lossy()));
+        .map(|path| normalize_user_data_dir_for_scope(&path.to_string_lossy()));
     default_norm
         .as_deref()
         .map(|norm| norm == expected_norm)
@@ -319,7 +429,12 @@ fn cmd_matches_user_data_scope(parts: &[String], expected_norm: &str) -> bool {
 
 fn cmd_matches_user_data_scope_or_unknown(parts: &[String], expected_norm: &str) -> bool {
     if parse_user_data_dir_arg(parts).is_none() {
-        return true;
+        let default_norm = default_chrome_user_data_dir()
+            .map(|path| normalize_user_data_dir_for_scope(&path.to_string_lossy()));
+        return default_norm
+            .as_deref()
+            .map(|norm| norm == expected_norm)
+            .unwrap_or(false);
     }
     cmd_matches_user_data_scope(parts, expected_norm)
 }
@@ -340,6 +455,211 @@ fn resolve_chrome_exe() -> Option<PathBuf> {
 fn default_chrome_user_data_dir() -> Option<PathBuf> {
     let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
     Some(PathBuf::from(local_app_data).join("Google\\Chrome\\User Data"))
+}
+
+#[cfg(windows)]
+fn to_wide_null(path: &Path) -> Vec<u16> {
+    let mut wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().collect();
+    wide.push(0);
+    wide
+}
+
+#[cfg(windows)]
+fn is_file_locked_windows(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    let wide = to_wide_null(path);
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            FILE_GENERIC_READ,
+            0, // no sharing: fails if file is currently in use
+            std::ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            0,
+        )
+    };
+    if handle != INVALID_HANDLE_VALUE {
+        unsafe {
+            CloseHandle(handle);
+        }
+        return false;
+    }
+    let err = unsafe { GetLastError() };
+    err == 32 || err == 33
+}
+
+#[cfg(windows)]
+fn is_profile_runtime_locked(profile_path: &Path) -> bool {
+    // Use profile-scoped runtime files that are typically held by Chrome only
+    // while this specific profile is active.
+    let direct_signal_files = [
+        "History",
+        "Favicons",
+        "Top Sites",
+        "Visited Links",
+        "Web Data",
+        "Login Data",
+        "Current Session",
+        "Current Tabs",
+    ];
+    for file_name in direct_signal_files {
+        let candidate = profile_path.join(file_name);
+        if is_file_locked_windows(&candidate) {
+            return true;
+        }
+    }
+
+    let cookies = profile_path.join("Network").join("Cookies");
+    if is_file_locked_windows(&cookies) {
+        return true;
+    }
+
+    let sessions_dir = profile_path.join("Sessions");
+    if let Ok(entries) = fs::read_dir(&sessions_dir) {
+        for entry in entries.flatten() {
+            let fpath = entry.path();
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if !(fname.starts_with("Session_") || fname.starts_with("Tabs_")) {
+                continue;
+            }
+            if is_file_locked_windows(&fpath) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn list_profiles_with_runtime_lock(user_data_dir: &Path) -> Vec<String> {
+    let mut result: Vec<String> = Vec::new();
+    let entries = match fs::read_dir(user_data_dir) {
+        Ok(v) => v,
+        Err(_) => return result,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_profile_dir = name
+            .strip_prefix("Profile ")
+            .map(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit()))
+            .unwrap_or(false);
+        if !is_profile_dir {
+            continue;
+        }
+        if is_profile_runtime_locked(&path) {
+            result.push(name);
+        }
+    }
+    result.sort();
+    result.dedup();
+    result
+}
+
+#[cfg(not(windows))]
+fn list_profiles_with_runtime_lock(_user_data_dir: &Path) -> Vec<String> {
+    Vec::new()
+}
+
+fn list_recently_active_profiles_from_disk(user_data_dir: &Path, window_seconds: u64) -> Vec<String> {
+    let now = std::time::SystemTime::now();
+    let window = std::time::Duration::from_secs(window_seconds);
+    let mut ranked: Vec<(String, std::time::SystemTime)> = Vec::new();
+
+    let entries = match fs::read_dir(user_data_dir) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_profile_dir = name
+            .strip_prefix("Profile ")
+            .map(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit()))
+            .unwrap_or(false);
+        if !is_profile_dir {
+            continue;
+        }
+
+        #[cfg(windows)]
+        {
+            // Prefer lock-based signal: captures running profiles even when command line
+            // does not expose --profile-directory and file mtimes are stale.
+            if is_profile_runtime_locked(&path) {
+                ranked.push((name, now));
+                continue;
+            }
+        }
+
+        let signal_files = [
+            "Current Session",
+            "Current Tabs",
+        ];
+
+        let mut latest: Option<std::time::SystemTime> = None;
+        for file_name in signal_files {
+            let candidate = path.join(file_name);
+            if let Ok(meta) = fs::metadata(&candidate) {
+                if let Ok(modified) = meta.modified() {
+                    latest = Some(match latest {
+                        Some(prev) if prev >= modified => prev,
+                        _ => modified,
+                    });
+                }
+            }
+        }
+
+        // Newer Chrome stores session markers in Profile X/Sessions/Session_* and Tabs_*.
+        let sessions_dir = path.join("Sessions");
+        if let Ok(entries) = fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let fpath = entry.path();
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if !(fname.starts_with("Session_") || fname.starts_with("Tabs_")) {
+                    continue;
+                }
+                if let Ok(meta) = fs::metadata(&fpath) {
+                    if let Ok(modified) = meta.modified() {
+                        latest = Some(match latest {
+                            Some(prev) if prev >= modified => prev,
+                            _ => modified,
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(last_seen) = latest {
+            if now
+                .duration_since(last_seen)
+                .map(|age| age <= window)
+                .unwrap_or(false)
+            {
+                ranked.push((name, last_seen));
+            }
+        }
+    }
+
+    ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut result: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (name, _) in ranked {
+        if seen.insert(name.clone()) {
+            result.push(name);
+        }
+    }
+
+    result
 }
 
 fn list_running_chrome_processes() -> Vec<(u32, String, String, Vec<String>)> {
@@ -387,19 +707,141 @@ fn list_running_chrome_processes() -> Vec<(u32, String, String, Vec<String>)> {
 }
 
 #[cfg(windows)]
-fn list_running_chrome_processes_windows() -> Option<Vec<(u32, String, String, Vec<String>)>> {
+fn powershell_output_hidden(args: &[&str]) -> Option<std::process::Output> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
 
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(args)
+        .output()
+        .ok()
+}
+
+#[cfg(windows)]
+fn get_running_chrome_profiles_windows(expected_user_data_norm: &str) -> Option<Vec<String>> {
+    let escaped_expected = expected_user_data_norm.replace('\'', "''");
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+$expected = '{escaped_expected}'
+
+function Normalize-PathLike([string]$path) {{
+  if ([string]::IsNullOrWhiteSpace($path)) {{ return '' }}
+  $p = $path.Trim().Trim('"').ToLower().Replace('\','/')
+  if ($p.StartsWith('//?/')) {{ $p = $p.Substring(4) }}
+  elseif ($p.StartsWith('/??/')) {{ $p = $p.Substring(4) }}
+  while ($p.EndsWith('/')) {{ $p = $p.Substring(0, $p.Length - 1) }}
+  return $p
+}}
+
+$items = Get-CimInstance Win32_Process | Select-Object Name, CommandLine, ExecutablePath
+$profilesScoped = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+$profilesAny = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+
+foreach ($item in $items) {{
+  $name = [string]$item.Name
+  $exe = [string]$item.ExecutablePath
+  $cmd = [string]$item.CommandLine
+  if ([string]::IsNullOrWhiteSpace($cmd)) {{ continue }}
+  $nameLikeChrome = $name -match '(?i)chrome'
+  $exeLikeChrome = $exe -match '(?i)(\\|/)?chrome(\.exe)?$'
+  $hasProfileArg = $cmd -match '(?i)--profile-directory(?:=|\s+)'
+  if (-not ($nameLikeChrome -or $exeLikeChrome -or $hasProfileArg)) {{ continue }}
+
+  $profile = $null
+  if ($cmd -match '--profile-directory=(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $profile = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }} elseif ($cmd -match '--profile-directory\s+(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $profile = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }}
+  $scope = $null
+  if ($cmd -match '--user-data-dir=(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $scope = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }} elseif ($cmd -match '--user-data-dir\s+(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $scope = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+  }}
+
+  if (-not $profile -and $scope) {{
+    $leaf = Split-Path -Path $scope -Leaf
+    if ($leaf -match '^(?i:profile)\s+(\d+)$') {{
+      $profile = 'Profile ' + [int]$matches[1]
+    }}
+  }}
+
+  if (-not $profile) {{ continue }}
+  $profile = $profile.Trim().Trim('"')
+  if ([string]::IsNullOrWhiteSpace($profile)) {{ continue }}
+
+  if ($profile -match '^(?i:profile)\s+(\d+)$') {{
+    $profile = 'Profile ' + [int]$matches[1]
+  }}
+
+  if ($scope) {{
+    $scope = [Environment]::ExpandEnvironmentVariables([string]$scope)
+  }} else {{
+    $scope = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+  }}
+  $scopeNorm = Normalize-PathLike $scope
+  [void]$profilesAny.Add($profile)
+  if ($scopeNorm -eq $expected) {{
+    [void]$profilesScoped.Add($profile)
+  }}
+}}
+
+$out = if ($profilesScoped.Count -gt 0) {{ $profilesScoped.ToArray() }} else {{ $profilesAny.ToArray() }}
+$out | Sort-Object | ConvertTo-Json -Compress
+"#
+    );
+
+    let output = powershell_output_hidden(&["-NoProfile", "-Command", &script])?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return Some(Vec::new());
+    }
+
+    let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+    let mut result: Vec<String> = Vec::new();
+    match json {
+        serde_json::Value::Array(items) => {
+            for item in &items {
+                if let Some(value) = item.as_str() {
+                    let normalized = normalize_profile_directory_name(value);
+                    if !normalized.is_empty() {
+                        result.push(normalized);
+                    }
+                }
+            }
+        }
+        serde_json::Value::String(value) => {
+            let normalized = normalize_profile_directory_name(&value);
+            if !normalized.is_empty() {
+                result.push(normalized);
+            }
+        }
+        _ => {}
+    }
+
+    result.sort();
+    result.dedup();
+    Some(result)
+}
+
+#[cfg(windows)]
+fn list_running_chrome_processes_windows() -> Option<Vec<(u32, String, String, Vec<String>)>> {
     let script = r#"
 $ErrorActionPreference = 'Stop'
 $items = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Select-Object ProcessId, CommandLine, ExecutablePath
 $items | ConvertTo-Json -Compress
 "#;
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", script])
-        .output()
-        .ok()?;
+    let output = powershell_output_hidden(&["-NoProfile", "-Command", script])?;
     if !output.status.success() {
         return None;
     }
@@ -449,43 +891,51 @@ $items | ConvertTo-Json -Compress
 
 #[cfg(windows)]
 fn find_chrome_pids_by_profile_windows(profile_name: &str) -> Option<Vec<u32>> {
-    use std::process::Command;
-
     let escaped_profile = profile_name.replace('\'', "''");
     let script = format!(
         r#"
 $profile = '{escaped_profile}'
-$items = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Select-Object ProcessId, ParentProcessId, CommandLine
-$parentMap = @{{}}
-foreach ($item in $items) {{
-  $parentMap[[int]$item.ProcessId] = [int]$item.ParentProcessId
-}}
+$items = Get-CimInstance Win32_Process | Select-Object ProcessId, Name, CommandLine, ExecutablePath
+$items = @($items | Where-Object {{
+  $name = [string]$_.Name
+  $exe = [string]$_.ExecutablePath
+  $cmd = [string]$_.CommandLine
+  if ([string]::IsNullOrWhiteSpace($cmd)) {{ return $false }}
+  $nameLikeChrome = $name -match '(?i)chrome'
+  $exeLikeChrome = $exe -match '(?i)(\\|/)?chrome(\.exe)?$'
+  $hasProfileArg = $cmd -match '(?i)--profile-directory(?:=|\s+)'
+  return ($nameLikeChrome -or $exeLikeChrome -or $hasProfileArg)
+}})
 $result = @()
 foreach ($item in $items) {{
   $cmd = [string]$item.CommandLine
   if ([string]::IsNullOrWhiteSpace($cmd)) {{ continue }}
   $name = $null
-  if ($cmd -match '--profile-directory=(?:"([^"]+)"|(.+?))(?=\s--|$)') {{
+  if ($cmd -match '--profile-directory=(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
     $name = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
-  }} elseif ($cmd -match '--profile-directory\s+(?:"([^"]+)"|(.+?))(?=\s--|$)') {{
+  }} elseif ($cmd -match '--profile-directory\s+(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
     $name = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
   }}
   if ($name) {{ $name = $name.Trim() }}
+  if (-not $name -and $cmd -match '--user-data-dir=(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $scope = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+    $leaf = Split-Path -Path $scope -Leaf
+    if ($leaf -match '^(?i:profile)\s+(\d+)$') {{
+      $name = 'Profile ' + $matches[1]
+    }}
+  }} elseif (-not $name -and $cmd -match '--user-data-dir\s+(?:"([^"]+)"|(.+?))(?=\s(?:--|/)|$)') {{
+    $scope = if ($matches[1]) {{ $matches[1] }} else {{ $matches[2] }}
+    $leaf = Split-Path -Path $scope -Leaf
+    if ($leaf -match '^(?i:profile)\s+(\d+)$') {{
+      $name = 'Profile ' + $matches[1]
+    }}
+  }}
   if ($name) {{
-    if ($name -ieq 'Profile' -and $cmd -match '--profile-directory(?:=|\s+)Profile\s+(\d+)(?=\s--|$)') {{
+    if ($name -ieq 'Profile' -and $cmd -match '--profile-directory(?:=|\s+)Profile\s+(\d+)(?=\s(?:--|/)|$)') {{
       $name = 'Profile ' + $matches[1]
     }}
     if ($name -ieq $profile) {{
-      $pid = [int]$item.ProcessId
-      $result += $pid
-
-      $safety = 0
-      $parent = $parentMap[$pid]
-      while ($parent -and $parentMap.ContainsKey($parent) -and $safety -lt 16) {{
-        $result += [int]$parent
-        $parent = $parentMap[$parent]
-        $safety++
-      }}
+      $result += [int]$item.ProcessId
     }}
   }}
 }}
@@ -493,10 +943,7 @@ $result | Sort-Object -Unique | ConvertTo-Json -Compress
 "#
     );
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &script])
-        .output()
-        .ok()?;
+    let output = powershell_output_hidden(&["-NoProfile", "-Command", &script])?;
     if !output.status.success() {
         return None;
     }
@@ -660,6 +1107,57 @@ fn list_visible_chrome_windows() -> Vec<(isize, u32)> {
 }
 
 #[cfg(windows)]
+fn find_visible_chrome_windows_by_title_fragment(fragment: &str) -> Vec<isize> {
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+
+    struct EnumCtx {
+        out: Vec<isize>,
+        fragment_lower: String,
+    }
+
+    unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &mut *(lparam as *mut EnumCtx);
+        if IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+
+        let mut class_buf = [0u16; 256];
+        let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+        if class_len <= 0 {
+            return 1;
+        }
+        let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+        if class_name != "Chrome_WidgetWin_1" {
+            return 1;
+        }
+
+        let title_len = GetWindowTextLengthW(hwnd);
+        if title_len <= 0 {
+            return 1;
+        }
+        let mut title_buf = vec![0u16; (title_len + 1) as usize];
+        let copied = GetWindowTextW(hwnd, title_buf.as_mut_ptr(), title_len + 1);
+        if copied <= 0 {
+            return 1;
+        }
+        let title = String::from_utf16_lossy(&title_buf[..copied as usize]).to_lowercase();
+        if title.contains(&ctx.fragment_lower) {
+            ctx.out.push(hwnd as isize);
+        }
+        1
+    }
+
+    let mut ctx = Box::new(EnumCtx {
+        out: Vec::new(),
+        fragment_lower: fragment.to_lowercase(),
+    });
+    unsafe {
+        EnumWindows(Some(enum_windows_cb), (&mut *ctx as *mut EnumCtx) as LPARAM);
+    }
+    ctx.out
+}
+
+#[cfg(windows)]
 fn list_visible_chrome_window_handles() -> Vec<isize> {
     list_visible_chrome_windows()
         .into_iter()
@@ -693,11 +1191,37 @@ fn cache_chrome_window_for_profile(profile_name: &str) {
 }
 
 #[cfg(windows)]
+fn ensure_profile_hwnd_binding_windows(profile_name: &str) -> bool {
+    if let Some(hwnd) = get_cached_profile_hwnd(profile_name) {
+        if unsafe { IsWindow(hwnd) } != 0 {
+            return true;
+        }
+        let _ = take_cached_profile_hwnd(profile_name);
+    }
+
+    cache_chrome_window_for_profile(profile_name);
+    if let Some(hwnd) = get_cached_profile_hwnd(profile_name) {
+        if unsafe { IsWindow(hwnd) } != 0 {
+            return true;
+        }
+        let _ = take_cached_profile_hwnd(profile_name);
+    }
+
+    let candidates = find_visible_chrome_windows_by_title_fragment(profile_name);
+    if candidates.len() == 1 {
+        cache_profile_hwnd(profile_name, candidates[0]);
+        return true;
+    }
+
+    false
+}
+
+#[cfg(windows)]
 fn close_chrome_profile_windows(profile_name: &str) -> Option<bool> {
     use std::thread;
     use std::time::Duration;
-    if get_cached_profile_hwnd(profile_name).is_none() {
-        cache_chrome_window_for_profile(profile_name);
+    if !ensure_profile_hwnd_binding_windows(profile_name) {
+        return Some(false);
     }
 
     let Some(cached_hwnd) = get_cached_profile_hwnd(profile_name) else {
@@ -717,6 +1241,42 @@ fn close_chrome_profile_windows(profile_name: &str) -> Option<bool> {
     Some(true)
 }
 
+#[cfg(windows)]
+fn try_infer_and_close_profile_by_single_unmapped_window(
+    profile_name: &str,
+    user_data_dir: &Path,
+) -> Option<bool> {
+    let debug = detect_running_chrome_profiles(Some(user_data_dir.to_string_lossy().to_string())).ok()?;
+    if !debug.final_profiles.iter().any(|name| name == profile_name) {
+        return Some(false);
+    }
+
+    let mapped = chrome_profile_hwnd_store().lock().ok()?;
+    let mapped_profiles: HashSet<String> = mapped.keys().cloned().collect();
+    let mapped_hwnds: HashSet<isize> = mapped.values().copied().collect();
+    drop(mapped);
+
+    let unmapped_profiles: Vec<String> = debug
+        .final_profiles
+        .into_iter()
+        .filter(|name| !mapped_profiles.contains(name))
+        .collect();
+    let unmapped_hwnds: Vec<isize> = list_visible_chrome_window_handles()
+        .into_iter()
+        .filter(|hwnd| !mapped_hwnds.contains(hwnd))
+        .collect();
+
+    if unmapped_profiles.len() == 1
+        && unmapped_hwnds.len() == 1
+        && unmapped_profiles[0] == profile_name
+    {
+        cache_profile_hwnd(profile_name, unmapped_hwnds[0]);
+        return close_chrome_profile_windows(profile_name);
+    }
+
+    None
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ChromeLaunchResult {
     selected: usize,
@@ -731,8 +1291,22 @@ struct ChromeCloseResult {
     closed: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChromeRunningProfilesDebug {
+    process_profiles: Vec<String>,
+    disk_lock_profiles: Vec<String>,
+    final_profiles: Vec<String>,
+}
+
 fn normalize_path_for_match(value: &str) -> String {
-    value.to_lowercase().replace('\\', "/").trim_end_matches('/').to_string()
+    let mut normalized = value.to_lowercase().replace('\\', "/");
+    if let Some(stripped) = normalized.strip_prefix("//?/") {
+        normalized = stripped.to_string();
+    } else if let Some(stripped) = normalized.strip_prefix("/??/") {
+        normalized = stripped.to_string();
+    }
+    normalized.trim_end_matches('/').to_string()
 }
 
 fn build_account_dirs(account_ids: &[i32], root_raw: &str, root_norm: &str) -> Vec<String> {
@@ -784,6 +1358,7 @@ fn set_explicit_app_user_model_id() {
 }
 
 pub fn run() {
+  let _ = APP_STARTED_AT.get_or_init(std::time::Instant::now);
   let is_autostart = std::env::args().any(|arg| arg == "--autostart");
 
   #[cfg(windows)]
@@ -903,6 +1478,8 @@ pub fn run() {
       launch_chrome_profiles,
       close_chrome_profiles,
       get_running_chrome_profiles,
+      get_running_chrome_profiles_debug,
+      get_closable_chrome_profiles,
       launch_single_chrome_profile,
       close_single_chrome_profile,
       send_reminder_notification
@@ -2034,13 +2611,15 @@ async fn launch_chrome_profiles(
         profiles.shuffle(&mut rng);
     }
 
-    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    let user_data_norm = normalize_user_data_dir_for_scope(&user_data_dir.to_string_lossy());
     let mut opened_profiles: HashSet<String> = HashSet::new();
     for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
         if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
             continue;
         }
-        if let Some(profile) = parse_profile_directory_arg(&cmd) {
+        if let Some(profile) =
+            parse_profile_directory_arg(&cmd).or_else(|| parse_profile_from_user_data_dir_arg(&cmd))
+        {
             opened_profiles.insert(profile);
         }
     }
@@ -2169,26 +2748,138 @@ async fn close_chrome_profiles(chrome_folder_path: String) -> Result<ChromeClose
 
 #[tauri::command]
 async fn get_running_chrome_profiles(chrome_folder_path: Option<String>) -> Result<Vec<String>, String> {
+    let debug = detect_running_chrome_profiles(chrome_folder_path)?;
+    Ok(debug.final_profiles)
+}
+
+fn detect_running_chrome_profiles(
+    chrome_folder_path: Option<String>,
+) -> Result<ChromeRunningProfilesDebug, String> {
     let user_data_dir = match chrome_folder_path {
         Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
         _ => default_chrome_user_data_dir()
             .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?,
     };
-    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    let user_data_norm = normalize_user_data_dir_for_scope(&user_data_dir.to_string_lossy());
 
     let mut running: HashSet<String> = HashSet::new();
-    for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
-        if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
-            continue;
-        }
-        if let Some(profile) = parse_profile_directory_arg(&cmd) {
-            running.insert(profile);
+    let mut process_profiles: HashSet<String> = HashSet::new();
+
+    #[cfg(windows)]
+    {
+        if let Some(list) = get_running_chrome_profiles_windows(user_data_norm.as_str()) {
+            for item in list {
+                process_profiles.insert(item.clone());
+                running.insert(item);
+            }
+        } else {
+            let mut running_scoped: HashSet<String> = HashSet::new();
+            let mut running_any_scope: HashSet<String> = HashSet::new();
+            for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
+                if let Some(profile) =
+                    parse_profile_directory_arg(&cmd).or_else(|| parse_profile_from_user_data_dir_arg(&cmd))
+                {
+                    running_any_scope.insert(profile.clone());
+                    if cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
+                        running_scoped.insert(profile);
+                    }
+                }
+            }
+            let base = if running_scoped.is_empty() { running_any_scope } else { running_scoped };
+            for item in base {
+                process_profiles.insert(item.clone());
+                running.insert(item);
+            }
         }
     }
 
-    let mut list = running.into_iter().collect::<Vec<_>>();
-    list.sort();
-    Ok(list)
+    #[cfg(not(windows))]
+    {
+        let mut running_scoped: HashSet<String> = HashSet::new();
+        let mut running_any_scope: HashSet<String> = HashSet::new();
+        for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
+            if let Some(profile) =
+                parse_profile_directory_arg(&cmd).or_else(|| parse_profile_from_user_data_dir_arg(&cmd))
+            {
+                running_any_scope.insert(profile.clone());
+                if cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
+                    running_scoped.insert(profile);
+                }
+            }
+        }
+        let base = if running_scoped.is_empty() { running_any_scope } else { running_scoped };
+        for item in base {
+            process_profiles.insert(item.clone());
+            running.insert(item);
+        }
+    }
+
+    let disk_lock_profiles = list_profiles_with_runtime_lock(&user_data_dir);
+    let running_chrome_exists = !list_running_chrome_processes().is_empty();
+    // Disk fallback is only needed when process-level detection is incomplete
+    // (commonly only "Profile 1" is visible in command line).
+    if running_chrome_exists && running.len() <= 1 {
+        for profile in &disk_lock_profiles {
+            running.insert(profile.clone());
+        }
+        // Use mtime-based fallback only if lock-based detection found nothing.
+        // This avoids stale "active" profiles after manual close.
+        let app_uptime_secs = APP_STARTED_AT
+            .get()
+            .map(|started| started.elapsed().as_secs())
+            .unwrap_or(999);
+        if disk_lock_profiles.is_empty() && app_uptime_secs >= 12 {
+            let recent_profiles = list_recently_active_profiles_from_disk(&user_data_dir, 300);
+            for profile in recent_profiles.into_iter().take(8) {
+                running.insert(profile);
+            }
+        }
+    }
+
+    let mut process_list = process_profiles.into_iter().collect::<Vec<_>>();
+    process_list.sort();
+    let mut final_list = running.into_iter().collect::<Vec<_>>();
+    final_list.sort();
+
+    Ok(ChromeRunningProfilesDebug {
+        process_profiles: process_list,
+        disk_lock_profiles,
+        final_profiles: final_list,
+    })
+}
+
+#[tauri::command]
+async fn get_running_chrome_profiles_debug(
+    chrome_folder_path: Option<String>,
+) -> Result<ChromeRunningProfilesDebug, String> {
+    detect_running_chrome_profiles(chrome_folder_path)
+}
+
+#[tauri::command]
+async fn get_closable_chrome_profiles(
+    chrome_folder_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let debug = detect_running_chrome_profiles(chrome_folder_path)?;
+
+    #[cfg(windows)]
+    {
+        let mut closable = debug
+            .final_profiles
+            .into_iter()
+            .filter(|profile| ensure_profile_hwnd_binding_windows(profile.as_str()))
+            .collect::<Vec<_>>();
+        closable.sort();
+        closable.dedup();
+        return Ok(closable);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut closable = debug.final_profiles;
+        closable.sort();
+        closable.dedup();
+        Ok(closable)
+    }
 }
 
 #[tauri::command]
@@ -2217,12 +2908,14 @@ async fn launch_single_chrome_profile(
         return Err(format!("Profile directory not found: {}", profile_dir.to_string_lossy()));
     }
 
-    let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+    let user_data_norm = normalize_user_data_dir_for_scope(&user_data_dir.to_string_lossy());
     for (_pid, _name, _path, cmd) in list_running_chrome_processes() {
         if !cmd_matches_user_data_scope(&cmd, user_data_norm.as_str()) {
             continue;
         }
-        if let Some(cmd_profile) = parse_profile_directory_arg(&cmd) {
+        if let Some(cmd_profile) =
+            parse_profile_directory_arg(&cmd).or_else(|| parse_profile_from_user_data_dir_arg(&cmd))
+        {
             if cmd_profile == profile {
                 return Ok(false);
             }
@@ -2270,7 +2963,7 @@ async fn launch_single_chrome_profile(
 
 #[tauri::command]
 async fn close_single_chrome_profile(
-    _chrome_folder_path: String,
+    chrome_folder_path: String,
     profile_name: String,
 ) -> Result<bool, String> {
     let profile = profile_name.trim().to_string();
@@ -2280,7 +2973,32 @@ async fn close_single_chrome_profile(
 
     #[cfg(windows)]
     {
-        return Ok(close_chrome_profile_windows(profile.as_str()).unwrap_or(false));
+        let user_data_dir = if chrome_folder_path.trim().is_empty() {
+            default_chrome_user_data_dir()
+                .ok_or_else(|| "Cannot resolve Chrome User Data directory".to_string())?
+        } else {
+            PathBuf::from(chrome_folder_path.trim())
+        };
+
+        if close_chrome_profile_windows(profile.as_str()).unwrap_or(false) {
+            return Ok(true);
+        }
+
+        if try_infer_and_close_profile_by_single_unmapped_window(profile.as_str(), &user_data_dir)
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+
+        let mut closed_any = false;
+        if let Some(pids) = find_chrome_pids_by_profile_windows(profile.as_str()) {
+            for pid in pids {
+                if kill_pid_windows_force(pid) {
+                    closed_any = true;
+                }
+            }
+        }
+        return Ok(closed_any);
     }
 
     #[cfg(not(windows))]
@@ -2291,7 +3009,7 @@ async fn close_single_chrome_profile(
         } else {
             PathBuf::from(_chrome_folder_path.trim())
         };
-        let user_data_norm = normalize_path_for_match(&user_data_dir.to_string_lossy());
+        let user_data_norm = normalize_user_data_dir_for_scope(&user_data_dir.to_string_lossy());
 
         let target_pids: Vec<u32> = list_running_chrome_processes()
             .into_iter()
@@ -2299,7 +3017,8 @@ async fn close_single_chrome_profile(
                 if !cmd_matches_user_data_scope_or_unknown(&cmd, user_data_norm.as_str()) {
                     return None;
                 }
-                let cmd_profile = parse_profile_directory_arg(&cmd);
+                let cmd_profile =
+                    parse_profile_directory_arg(&cmd).or_else(|| parse_profile_from_user_data_dir_arg(&cmd));
                 if cmd_profile.as_deref() != Some(profile.as_str()) {
                     return None;
                 }

@@ -9,6 +9,12 @@ export type AccountStats = {
   blocked: number;
 };
 
+export type ChromeRunningProfilesDebug = {
+  processProfiles: string[];
+  diskLockProfiles: string[];
+  finalProfiles: string[];
+};
+
 export type TauriAccount = {
   id: string;
   name: string;
@@ -134,6 +140,18 @@ export const closeChromeProfiles = async (chromeFolderPath: string) => {
 
 export const getRunningChromeProfiles = async (chromeFolderPath?: string) => {
   return await invoke<string[]>("get_running_chrome_profiles", {
+    chromeFolderPath: chromeFolderPath && chromeFolderPath.trim().length > 0 ? chromeFolderPath : null,
+  });
+};
+
+export const getRunningChromeProfilesDebug = async (chromeFolderPath?: string) => {
+  return await invoke<ChromeRunningProfilesDebug>("get_running_chrome_profiles_debug", {
+    chromeFolderPath: chromeFolderPath && chromeFolderPath.trim().length > 0 ? chromeFolderPath : null,
+  });
+};
+
+export const getClosableChromeProfiles = async (chromeFolderPath?: string) => {
+  return await invoke<string[]>("get_closable_chrome_profiles", {
     chromeFolderPath: chromeFolderPath && chromeFolderPath.trim().length > 0 ? chromeFolderPath : null,
   });
 };

@@ -1,6 +1,6 @@
 ﻿import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, Copy, ExternalLink, Filter, Loader2, Plus, RefreshCw, Rocket, Search, SearchX, X } from "lucide-react";
+import { Clock, Copy, ExternalLink, Filter, Loader2, Pencil, Plus, RefreshCw, Rocket, Search, SearchX, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +14,7 @@ import { useI18n } from "@/lib/i18n";
 import { accountStatus, type AccountStatus } from "@/lib/accountStatus";
 import { localStore, type LocalAccountMeta } from "@/lib/localStore";
 import {
+  getClosableChromeProfiles,
   closeChromeProfiles,
   closeSingleChromeProfile,
   getRunningChromeProfiles,
@@ -58,6 +59,16 @@ const parseChromeAccountId = (name: string): number => {
   return 100000 + (hash % 900000);
 };
 
+const normalizeChromeProfileName = (value: string): string => {
+  const trimmed = String(value ?? "").trim().replace(/^"+|"+$/g, "");
+  const match = trimmed.match(/^profile\s+(\d+)$/i);
+  if (match) {
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) ? `Profile ${parsed}` : `Profile ${match[1]}`;
+  }
+  return trimmed;
+};
+
 export default function Chrome() {
   const { language } = useI18n();
   const { toast } = useToast();
@@ -74,8 +85,10 @@ export default function Chrome() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [accounts, setAccounts] = useState<ChromeAccount[]>([]);
   const [runningProfiles, setRunningProfiles] = useState<Set<string>>(new Set());
+  const [closableProfiles, setClosableProfiles] = useState<Set<string>>(new Set());
   const [locallyOpenedProfiles, setLocallyOpenedProfiles] = useState<Set<string>>(new Set());
   const locallyOpenedAtRef = useRef<Map<string, number>>(new Map());
+  const suppressedClosedUntilRef = useRef<Map<string, number>>(new Map());
   const pendingKeepUntilRef = useRef<Map<string, number>>(new Map());
   const [pendingProfileStates, setPendingProfileStates] = useState<Map<string, boolean>>(new Map());
   const [chromeFolderPath, setChromeFolderPath] = useState("");
@@ -84,7 +97,7 @@ export default function Chrome() {
   const [isHashtagModalOpen, setIsHashtagModalOpen] = useState(false);
   const [hashtagModalAccountId, setHashtagModalAccountId] = useState<number | null>(null);
   const [hashtagInput, setHashtagInput] = useState("");
-  const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; ref_link: string }>>([]);
+  const [availableProjects, setAvailableProjects] = useState<Array<{ id: number; name: string; ref_link: string }>>([]);
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [startRange, setStartRange] = useState("");
   const [endRange, setEndRange] = useState("");
@@ -92,6 +105,8 @@ export default function Chrome() {
   const [customLinkUrl, setCustomLinkUrl] = useState<string | null>(null);
   const [isProjectSelectOpen, setIsProjectSelectOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [projectModalMode, setProjectModalMode] = useState<"add" | "edit">("add");
+  const [editingProject, setEditingProject] = useState<{ id: number; name: string; ref_link: string } | null>(null);
   const [isCustomLinkModalOpen, setIsCustomLinkModalOpen] = useState(false);
   const [batchTargets, setBatchTargets] = useState<string[]>([]);
   const [batchCompleted, setBatchCompleted] = useState<Set<string>>(new Set());
@@ -102,6 +117,7 @@ export default function Chrome() {
   const statsRefreshInFlightRef = useRef(false);
 
   const logAction = (message: string) => createLog({ message });
+  const logChromeAction = (message: string) => createLog({ message: `[C] ${message}` });
 
   const loadAccountsFromFolder = async (reason: "initial" | "refresh" = "refresh") => {
     const settings = localStore.getSettings();
@@ -191,10 +207,11 @@ export default function Chrome() {
       .getProjects()
       .filter((project) => project.type === "chrome")
       .map((project) => ({
+        id: Number(project.id),
         name: String(project.name ?? "").trim(),
         ref_link: String(project.refLink || project.link || "").trim(),
       }))
-      .filter((project) => project.name.length > 0);
+      .filter((project) => Number.isFinite(project.id) && project.name.length > 0);
     setAvailableProjects(projects);
   };
 
@@ -245,7 +262,44 @@ export default function Chrome() {
 
   const handleAddProject = () => {
     setIsProjectSelectOpen(false);
+    setProjectModalMode("add");
+    setEditingProject(null);
     setIsProjectModalOpen(true);
+  };
+
+  const handleEditProject = (project: { id: number; name: string; ref_link: string }) => {
+    setIsProjectSelectOpen(false);
+    setProjectModalMode("edit");
+    setEditingProject(project);
+    setIsProjectModalOpen(true);
+  };
+
+  const handleDeleteProject = (project: { id: number; name: string }) => {
+    setIsProjectSelectOpen(false);
+    const deleted = localStore.deleteProject(project.id);
+    if (!deleted) {
+      toast({
+        title: tr("Помилка видалення", "Delete error", "Ошибка удаления"),
+        description: tr(
+          `Не вдалося видалити проєкт ${project.name}`,
+          `Failed to delete project ${project.name}`,
+          `Не удалось удалить проект ${project.name}`
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
+    loadChromeProjects();
+    if (selectedProject === project.name) {
+      setSelectedProject("");
+    }
+    logChromeAction(
+      tr(`Видалено проєкт ${project.name}`, `Deleted project ${project.name}`, `Удален проект ${project.name}`)
+    );
+    toast({
+      title: tr("Проєкт видалено", "Project deleted", "Проект удален"),
+      description: project.name,
+    });
   };
 
   const handleSaveProject = (project: { name: string; ref_link: string }) => {
@@ -253,10 +307,12 @@ export default function Chrome() {
     const refLink = String(project.ref_link ?? "").trim();
     if (!name || !refLink) return;
 
-    const exists = localStore
-      .getProjects()
-      .some((item) => item.type === "chrome" && item.name.trim().toLowerCase() === name.toLowerCase());
-    if (exists) {
+    const projects = localStore.getProjects().filter((item) => item.type === "chrome");
+    const duplicate = projects.find((item) => {
+      if (projectModalMode === "edit" && editingProject && item.id === editingProject.id) return false;
+      return item.name.trim().toLowerCase() === name.toLowerCase();
+    });
+    if (duplicate) {
       toast({
         title: tr("Проєкт вже існує", "Project already exists", "Проект уже существует"),
         description: tr(
@@ -266,6 +322,27 @@ export default function Chrome() {
         ),
         variant: "destructive",
       });
+      return;
+    }
+    if (projectModalMode === "edit" && editingProject) {
+      localStore.updateProject(editingProject.id, {
+        name,
+        type: "chrome",
+        link: refLink,
+        appName: name,
+        appType: "",
+        refLink,
+        mixed: "",
+      });
+      loadChromeProjects();
+      if (selectedProject === editingProject.name) {
+        setSelectedProject(name);
+      }
+      setIsProjectModalOpen(false);
+      setEditingProject(null);
+      logChromeAction(
+        tr(`Оновлено проєкт ${name}`, `Updated project ${name}`, `Обновлен проект ${name}`)
+      );
       return;
     }
 
@@ -281,7 +358,9 @@ export default function Chrome() {
     loadChromeProjects();
     setSelectedProject(name);
     setIsProjectModalOpen(false);
-    logAction(tr(`Додано проєкт ${name}`, `Added project ${name}`, `Добавлен проект ${name}`));
+    logChromeAction(
+      tr(`Додано проєкт ${name}`, `Added project ${name}`, `Добавлен проект ${name}`)
+    );
   };
 
   const handleCustomLinkSubmit = (customUrl: string) => {
@@ -382,23 +461,37 @@ export default function Chrome() {
   };
 
   const getEffectiveStatus = (account: ChromeAccount): AccountStatus => {
+    const profileKey = normalizeChromeProfileName(account.name);
     if (account.status === accountStatus.blocked) return accountStatus.blocked;
-    const pending = pendingProfileStates.get(account.name);
+    const pending = pendingProfileStates.get(profileKey);
     const isRunning =
       typeof pending === "boolean"
         ? pending
-        : runningProfiles.has(account.name) || locallyOpenedProfiles.has(account.name);
+        : runningProfiles.has(profileKey) || locallyOpenedProfiles.has(profileKey);
     return isRunning ? accountStatus.active : accountStatus.inactive;
   };
 
   const syncRunningProfiles = async () => {
     try {
+      const now = Date.now();
       const running = await getRunningChromeProfiles(chromeFolderPath);
-      const next = new Set((running ?? []).map((value) => String(value).trim()).filter(Boolean));
+      const next = new Set(
+        (running ?? [])
+          .map((value) => normalizeChromeProfileName(String(value)))
+          .filter(Boolean)
+      );
+      try {
+        const closable = await getClosableChromeProfiles(chromeFolderPath);
+        const closableSet = new Set(
+          (closable ?? []).map((value) => normalizeChromeProfileName(String(value))).filter(Boolean)
+        );
+        setClosableProfiles(closableSet);
+      } catch {
+        setClosableProfiles(new Set());
+      }
       setRunningProfiles(next);
       setLocallyOpenedProfiles((prev) => {
         if (prev.size === 0) return next;
-        const now = Date.now();
         const merged = new Set(next);
 
         // Keep recently requested opens for a short grace period to avoid UI flicker.
@@ -446,7 +539,17 @@ export default function Chrome() {
   const handleCloseAll = async () => {
     try {
       const result = await closeChromeProfiles(chromeFolderPath);
-      logAction(`Chrome close: CLOSED=${result.closed}/${result.target}`);
+      const now = Date.now();
+      accounts.forEach((account) => {
+        suppressedClosedUntilRef.current.set(normalizeChromeProfileName(account.name), now + 120000);
+      });
+      logChromeAction(
+        tr(
+          `Завершено ${result.closed} профілів`,
+          `Finished ${result.closed} profiles`,
+          `Завершено ${result.closed} профилей`
+        )
+      );
       toast({
         title: tr("Закриття завершено", "Close completed", "Закрытие завершено"),
         description: tr(
@@ -482,7 +585,9 @@ export default function Chrome() {
       if (targets.length === 0) return;
 
       const runningNow = new Set(await getRunningChromeProfiles(chromeFolderPath));
-      const preOpened = new Set(targets.filter((name) => runningNow.has(name)));
+      const preOpened = new Set(
+        targets.filter((name) => runningNow.has(normalizeChromeProfileName(name)))
+      );
       const completed = new Set(preOpened);
       const remaining = targets.filter((name) => !completed.has(name));
       const nextBatch = remaining.slice(0, batchSize);
@@ -510,7 +615,14 @@ export default function Chrome() {
       setBatchTargets(targets);
       setBatchCompleted(completed);
       setBatchActive(new Set(openedNames));
-      logAction(`Chrome open all: OPEN=${opened}/${nextBatch.length}`);
+      const remainingAfterLaunch = Math.max(0, targets.length - (completed.size + openedNames.length));
+      logChromeAction(
+        tr(
+          `Запущено ${opened} акаунтів. Залишилось ${remainingAfterLaunch}.`,
+          `Launched ${opened} accounts. Remaining ${remainingAfterLaunch}.`,
+          `Запущено ${opened} аккаунтов. Осталось ${remainingAfterLaunch}.`
+        )
+      );
       toast({
         title: tr("Відкриття завершено", "Open completed", "Открытие завершено"),
         description: tr(
@@ -609,8 +721,17 @@ export default function Chrome() {
       setIsBatchBusy(true);
 
       const activeNow = Array.from(batchActive);
+      const runningBeforeClose = new Set(
+        (await getRunningChromeProfiles(chromeFolderPath)).map((value) =>
+          normalizeChromeProfileName(String(value))
+        )
+      );
       const closedNames: string[] = [];
       for (const profileName of activeNow) {
+        if (!runningBeforeClose.has(normalizeChromeProfileName(profileName))) {
+          closedNames.push(profileName);
+          continue;
+        }
         try {
           let closed = await closeSingleChromeProfile({ chromeFolderPath, profileName });
           if (!closed) {
@@ -629,16 +750,32 @@ export default function Chrome() {
 
       const nextCompleted = new Set(batchCompleted);
       closedNames.forEach((name) => nextCompleted.add(name));
+
+      const runningNow = new Set(
+        (await getRunningChromeProfiles(chromeFolderPath)).map((value) =>
+          normalizeChromeProfileName(String(value))
+        )
+      );
+      const stillRunningFromActive = activeNow.filter((name) =>
+        runningNow.has(normalizeChromeProfileName(name))
+      );
+      // If user closed batch profiles manually, treat them as completed too,
+      // otherwise Continue may relaunch the same first batch.
+      activeNow.forEach((name) => {
+        if (!runningNow.has(normalizeChromeProfileName(name))) {
+          nextCompleted.add(name);
+        }
+      });
       setBatchCompleted(nextCompleted);
 
-      const runningNow = new Set(await getRunningChromeProfiles(chromeFolderPath));
       const remaining = batchTargets.filter(
         (name) =>
           !nextCompleted.has(name) &&
           !batchPreOpenedRef.current.has(name) &&
-          !runningNow.has(name)
+          !runningNow.has(normalizeChromeProfileName(name))
       );
-      const nextBatch = remaining.slice(0, batchSize);
+      const slotsToOpen = Math.max(0, batchSize - stillRunningFromActive.length);
+      const nextBatch = remaining.slice(0, slotsToOpen);
 
       const nextOpened: string[] = [];
       for (const profileName of nextBatch) {
@@ -653,7 +790,7 @@ export default function Chrome() {
           console.warn(`Failed to open profile ${profileName}:`, error);
         }
       }
-      setBatchActive(new Set(nextOpened));
+      setBatchActive(new Set([...stillRunningFromActive, ...nextOpened]));
       void syncRunningProfiles();
     } catch (error) {
       toast({
@@ -670,7 +807,11 @@ export default function Chrome() {
     if (isBatchBusy || batchTargets.length === 0) return;
     try {
       setIsBatchBusy(true);
-      const observedRunning = new Set(await getRunningChromeProfiles(chromeFolderPath));
+      const observedRunning = new Set(
+        (await getRunningChromeProfiles(chromeFolderPath)).map((value) =>
+          normalizeChromeProfileName(String(value))
+        )
+      );
       const runningNow = new Set([
         ...Array.from(observedRunning),
         ...Array.from(runningProfiles),
@@ -678,7 +819,8 @@ export default function Chrome() {
         ...Array.from(batchActive),
       ]);
       const closable = batchTargets.filter(
-        (name) => runningNow.has(name) && !batchPreOpenedRef.current.has(name)
+        (name) =>
+          runningNow.has(normalizeChromeProfileName(name)) && !batchPreOpenedRef.current.has(name)
       );
 
       let closedCount = 0;
@@ -723,19 +865,38 @@ export default function Chrome() {
   const hasProfilesToClose = useMemo(
     () =>
       accounts.some((account) => {
-        const pending = pendingProfileStates.get(account.name);
+        const profileKey = normalizeChromeProfileName(account.name);
+        const pending = pendingProfileStates.get(profileKey);
         if (typeof pending === "boolean") return pending;
-        return runningProfiles.has(account.name) || locallyOpenedProfiles.has(account.name);
+        return runningProfiles.has(profileKey) || locallyOpenedProfiles.has(profileKey);
       }),
     [accounts, pendingProfileStates, runningProfiles, locallyOpenedProfiles]
   );
 
   const handleToggleAccount = async (account: ChromeAccount) => {
-    const isRunning = runningProfiles.has(account.name) || locallyOpenedProfiles.has(account.name);
-    pendingKeepUntilRef.current.set(account.name, Date.now() + 1800);
+    const profileKey = normalizeChromeProfileName(account.name);
+    const isRunning = runningProfiles.has(profileKey) || locallyOpenedProfiles.has(profileKey);
+    if (isRunning && !closableProfiles.has(profileKey)) {
+      toast({
+        title: tr("Недоступно", "Unavailable", "Недоступно"),
+        description: tr(
+          `Профіль ${account.name} відкритий поза додатком без надійної прив'язки вікна`,
+          `Profile ${account.name} is open outside the app without a reliable window binding`,
+          `Профиль ${account.name} открыт вне приложения без надежной привязки окна`
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (isRunning) {
+      suppressedClosedUntilRef.current.set(profileKey, Date.now() + 120000);
+    } else {
+      suppressedClosedUntilRef.current.delete(profileKey);
+    }
+    pendingKeepUntilRef.current.set(profileKey, Date.now() + 1800);
     setPendingProfileStates((prev) => {
       const next = new Map(prev);
-      next.set(account.name, !isRunning);
+      next.set(profileKey, !isRunning);
       return next;
     });
     try {
@@ -750,11 +911,21 @@ export default function Chrome() {
           closed = await closeSingleChromeProfile({ chromeFolderPath, profileName: account.name });
         }
         if (!closed) {
-          pendingKeepUntilRef.current.delete(account.name);
+          suppressedClosedUntilRef.current.delete(profileKey);
+          pendingKeepUntilRef.current.delete(profileKey);
           setPendingProfileStates((prev) => {
             const next = new Map(prev);
-            next.delete(account.name);
+            next.delete(profileKey);
             return next;
+          });
+          toast({
+            title: tr("Не вдалося закрити", "Close failed", "Не удалось закрыть"),
+            description: tr(
+              `Профіль ${account.name} не вдалося закрити автоматично`,
+              `Could not close profile ${account.name} automatically`,
+              `Профиль ${account.name} не удалось закрыть автоматически`
+            ),
+            variant: "destructive",
           });
           void syncRunningProfiles();
           return;
@@ -769,34 +940,35 @@ export default function Chrome() {
       setRunningProfiles((prev) => {
         const next = new Set(prev);
         if (isRunning) {
-          next.delete(account.name);
+          next.delete(profileKey);
         } else {
-          next.add(account.name);
+          next.add(profileKey);
         }
         return next;
       });
       setLocallyOpenedProfiles((prev) => {
         const next = new Set(prev);
         if (isRunning) {
-          next.delete(account.name);
+          next.delete(profileKey);
         } else {
-          next.add(account.name);
+          next.add(profileKey);
         }
         return next;
       });
       if (isRunning) {
-        locallyOpenedAtRef.current.delete(account.name);
+        locallyOpenedAtRef.current.delete(profileKey);
       } else {
-        locallyOpenedAtRef.current.set(account.name, Date.now());
+        locallyOpenedAtRef.current.set(profileKey, Date.now());
       }
       window.setTimeout(() => {
         void syncRunningProfiles();
       }, 250);
     } catch (error) {
-      pendingKeepUntilRef.current.delete(account.name);
+      suppressedClosedUntilRef.current.delete(profileKey);
+      pendingKeepUntilRef.current.delete(profileKey);
       setPendingProfileStates((prev) => {
         const next = new Map(prev);
-        next.delete(account.name);
+        next.delete(profileKey);
         return next;
       });
       toast({
@@ -812,7 +984,7 @@ export default function Chrome() {
       recentActions.filter((entry) => {
         const message = String(entry?.message ?? "").trim();
         const lower = message.toLowerCase();
-        if (!lower.includes("chrome")) return false;
+        if (!/^\[c\]\s*/i.test(message) && !lower.includes("chrome")) return false;
         if (lower.startsWith("chrome launch:")) return false;
         if (lower.startsWith("chrome close:")) return false;
         return true;
@@ -830,7 +1002,7 @@ export default function Chrome() {
       const haystack = `${account.id} ${account.name} ${account.displayName} ${account.notes}`.toLowerCase();
       return haystack.includes(search);
     });
-  }, [accounts, accountFilter, notesFilter, accountSearch, runningProfiles]);
+  }, [accounts, accountFilter, notesFilter, accountSearch, runningProfiles, locallyOpenedProfiles, pendingProfileStates]);
 
   const canCloseAll = Boolean(chromeFolderPath) && hasProfilesToClose;
   const canOpenAll = useMemo(
@@ -864,7 +1036,7 @@ export default function Chrome() {
     const running = accounts.filter((account) => getEffectiveStatus(account) === accountStatus.active).length;
     const blocked = accounts.filter((account) => getEffectiveStatus(account) === accountStatus.blocked).length;
     return { total, running, blocked };
-  }, [accounts, runningProfiles]);
+  }, [accounts, runningProfiles, locallyOpenedProfiles, pendingProfileStates]);
 
   useEffect(() => {
     void syncRunningProfiles();
@@ -937,18 +1109,51 @@ export default function Chrome() {
                             </div>
                           </SelectItem>
                           {availableProjects.map((project) => (
-                            <SelectItem
-                              key={project.name}
-                              value={project.name}
-                              className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
-                            >
-                              <div className="flex items-center w-full min-w-0 gap-2">
-                                <span className="block max-w-[55%] truncate">{project.name}</span>
-                                <span className="block max-w-[40%] truncate text-xs text-muted-foreground">
-                                  {project.ref_link || ""}
-                                </span>
+                            <div key={project.id} className="group relative">
+                              <SelectItem
+                                value={project.name}
+                                className="pl-2 pr-20 [&>span.absolute]:hidden focus:bg-white/10 focus:text-white data-[highlighted]:bg-white/10 data-[highlighted]:text-white"
+                              >
+                                <div className="flex items-center w-full min-w-0 gap-2">
+                                  <span className="block max-w-[55%] truncate">{project.name}</span>
+                                  <span className="block max-w-[40%] truncate text-xs text-muted-foreground">
+                                    {project.ref_link || ""}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded-md bg-transparent hover:bg-transparent active:bg-transparent text-white hover:text-white flex items-center justify-center"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                  }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleEditProject(project);
+                                  }}
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded-md bg-transparent hover:bg-transparent active:bg-transparent text-red-400 hover:text-red-400 flex items-center justify-center"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                  }}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteProject(project);
+                                  }}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </div>
-                            </SelectItem>
+                            </div>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1088,7 +1293,9 @@ export default function Chrome() {
                         {filteredRecentActions.slice(0, 24).map((entry: { id: number; message: string; timestamp: number }) => (
                           <div key={entry.id} className="flex gap-3 text-sm font-mono group hover:bg-white/5 p-2 rounded-lg transition-colors">
                             <span className="text-primary/70 shrink-0">[{format(new Date(entry.timestamp), "HH:mm:ss")}]</span>
-                            <span className="text-muted-foreground group-hover:text-white transition-colors break-all">{String(entry.message ?? "").trim()}</span>
+                            <span className="text-muted-foreground group-hover:text-white transition-colors break-all">
+                              {String(entry.message ?? "").trim().replace(/^\[c\]\s*/i, "")}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -1191,6 +1398,7 @@ export default function Chrome() {
                   const isEditing = editingAccountId === account.id;
                   const effectiveStatus = getEffectiveStatus(account);
                   const isRunningEffective = effectiveStatus === accountStatus.active;
+                  const isRunningClosable = closableProfiles.has(normalizeChromeProfileName(account.name));
                   const statusLabel =
                     effectiveStatus === accountStatus.active
                       ? tr("активні", "active", "активные")
@@ -1345,7 +1553,17 @@ export default function Chrome() {
                                 : "bg-white/[0.006] border-white/[0.025] hover:bg-white/10 hover:border-white/[0.04]"
                             } focus-visible:ring-0 focus-visible:outline-none`}
                             onClick={() => void handleToggleAccount(account)}
-                            title={isRunningEffective ? tr("Закрити", "Close", "Закрыть") : tr("Відкрити", "Open", "Открыть")}
+                            title={
+                              isRunningEffective
+                                ? isRunningClosable
+                                  ? tr("Закрити", "Close", "Закрыть")
+                                  : tr(
+                                      "Закриття недоступне без прив'язки вікна",
+                                      "Close unavailable without window binding",
+                                      "Закрытие недоступно без привязки окна"
+                                    )
+                                : tr("Відкрити", "Open", "Открыть")
+                            }
                           >
                             {isRunningEffective ? (
                               <X className="w-3 h-3 text-white" />
@@ -1410,8 +1628,8 @@ export default function Chrome() {
         isOpen={isProjectModalOpen}
         onClose={() => setIsProjectModalOpen(false)}
         onSave={handleSaveProject}
-        project={null}
-        mode="add"
+        project={editingProject ? { name: editingProject.name, ref_link: editingProject.ref_link } : null}
+        mode={projectModalMode}
         linkPlaceholder="https://example.com"
       />
 

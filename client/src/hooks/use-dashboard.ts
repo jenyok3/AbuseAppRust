@@ -8,6 +8,11 @@ const lt = (uk: string, en: string, ru: string) => {
   return language === "en" ? en : language === "ru" ? ru : uk;
 };
 
+const withScopeLogPrefix = (message: string, scope: DailyTaskScope) => {
+  if (scope === "chrome") return `[C] ${message}`;
+  return message;
+};
+
 // ============================================
 // PROJECTS
 // ============================================
@@ -123,7 +128,12 @@ export function useCreateDailyTask(scope: DailyTaskScope = "telegram") {
       return localStore.addDailyTask(data.title, data.remindAt, scope);
     },
     onSuccess: (created) => {
-      localStore.addLog(lt(`Додано щоденне завдання: ${created.title}`, `Added daily task: ${created.title}`, `Добавлена ежедневная задача: ${created.title}`));
+      localStore.addLog(
+        withScopeLogPrefix(
+          lt(`Додано завдання: ${created.title}`, `Added task: ${created.title}`, `Добавлена задача: ${created.title}`),
+          scope
+        )
+      );
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -179,8 +189,8 @@ export function useDeleteDailyTask(scope: DailyTaskScope = "telegram") {
     },
     onSuccess: (_result, _id, context) => {
       const title = typeof context?.title === "string" ? context.title : null;
-      const label = title ? lt(`Видалено щоденне завдання: ${title}`, `Deleted daily task: ${title}`, `Удалена ежедневная задача: ${title}`) : lt("Видалено щоденне завдання", "Deleted daily task", "Удалена ежедневная задача");
-      localStore.addLog(label);
+      const label = title ? lt(`Видалено завдання: ${title}`, `Deleted task: ${title}`, `Удалена задача: ${title}`) : lt("Видалено завдання", "Deleted task", "Удалена задача");
+      localStore.addLog(withScopeLogPrefix(label, scope));
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },
@@ -224,7 +234,12 @@ export function useUpdateDailyTaskReminder(scope: DailyTaskScope = "telegram") {
     },
     onSuccess: (_updated, { id, remindAt }) => {
       const label = remindAt ? lt("Заплановано", "Scheduled", "Запланировано") : lt("Скасовано", "Canceled", "Отменено");
-      localStore.addLog(lt(`${label} нагадування для завдання #${id}`, `${label} reminder for task #${id}`, `${label} напоминание для задачи #${id}`));
+      localStore.addLog(
+        withScopeLogPrefix(
+          lt(`${label} нагадування для завдання #${id}`, `${label} reminder for task #${id}`, `${label} напоминание для задачи #${id}`),
+          scope
+        )
+      );
       queryClient.invalidateQueries({ queryKey: ["local", "dailyTasks", scope] });
       queryClient.invalidateQueries({ queryKey: ["local", "logs"] });
     },

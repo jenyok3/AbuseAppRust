@@ -162,7 +162,10 @@ export default function Telegram() {
       normalized
     );
   };
-  const isChromeLog = (message: string) => /\bchrome\b/i.test(String(message ?? ""));
+  const isChromeLog = (message: string) => {
+    const raw = String(message ?? "").trim();
+    return /^\[c\]\s*/i.test(raw) || /\bchrome\b/i.test(raw);
+  };
   const filteredRecentActions = useMemo(
     () =>
       recentActions.filter((entry) => {
@@ -2863,10 +2866,9 @@ export default function Telegram() {
                                 </div>
                               </SelectItem>
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 hover:bg-white/10 text-white/70 hover:text-white"
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded-md bg-transparent hover:bg-transparent active:bg-transparent text-white hover:text-white flex items-center justify-center"
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
@@ -2874,11 +2876,10 @@ export default function Telegram() {
                                   }}
                                 >
                                   <Pencil className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 hover:bg-red-500/20 text-red-400/70 hover:text-red-400"
+                                </button>
+                                <button
+                                  type="button"
+                                  className="h-6 w-6 rounded-md bg-transparent hover:bg-transparent active:bg-transparent text-red-400 hover:text-red-400 flex items-center justify-center"
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
@@ -2886,7 +2887,7 @@ export default function Telegram() {
                                   }}
                                 >
                                   <Trash2 className="w-3 h-3" />
-                                </Button>
+                                </button>
                               </div>
                             </div>
                           ))}
