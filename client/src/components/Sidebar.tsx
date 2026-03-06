@@ -57,23 +57,20 @@ export function Sidebar({ isExpanded, onExpandedChange }: SidebarProps) {
       >
         <div
           className={cn(
-            "h-20 flex items-center",
+            "h-14 flex items-center",
             isExpanded ? "px-4 justify-start" : "px-0 justify-center"
           )}
         >
           <div
             className={cn(
-              "rounded-xl overflow-hidden",
-              isExpanded ? "w-14 h-14" : "w-12 h-12"
+              "-mt-2 w-[58px] h-[58px] rounded-xl overflow-hidden shrink-0",
+              isExpanded ? "-ml-1.5" : "-ml-1"
             )}
           >
             <img
               src="/logo.png"
               alt="AbuseApp Logo"
-              className={cn(
-                "w-full h-full object-contain",
-                isExpanded ? "translate-x-0" : "-translate-x-[1px]"
-              )}
+              className="w-full h-full object-contain"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = "none";
@@ -81,17 +78,17 @@ export function Sidebar({ isExpanded, onExpandedChange }: SidebarProps) {
               }}
             />
             <div className="w-full h-full bg-gradient-to-br from-purple-600 to-purple-800 flex items-center justify-center hidden">
-              <span className={cn("text-white font-bold", isExpanded ? "text-lg" : "text-sm")}>A</span>
+              <span className="text-white font-bold text-sm">A</span>
             </div>
           </div>
           {isExpanded ? (
-            <span className="ml-3 font-display font-bold text-lg tracking-wide whitespace-nowrap">
+            <span className="ml-3 font-display font-bold text-lg tracking-wide whitespace-nowrap leading-none">
               Abuse<span className="text-primary">App</span>
             </span>
           ) : null}
         </div>
 
-        <div className={cn("space-y-2", isExpanded ? "p-4" : "px-2 py-2")}>
+        <div className={cn("space-y-2", isExpanded ? "px-4 pb-4 pt-2" : "px-2 py-2")}>
           <Button
             variant="ghost"
             onClick={handleTelegramClick}
@@ -178,7 +175,7 @@ export function Sidebar({ isExpanded, onExpandedChange }: SidebarProps) {
         <button
           type="button"
           aria-label="Collapse sidebar"
-          className="fixed left-16 right-0 top-12 bottom-0 z-40 bg-black/25 backdrop-blur-sm"
+          className="fixed left-16 right-0 top-12 bottom-0 z-40 bg-black/35 backdrop-blur-md"
           onClick={() => onExpandedChange(false)}
         />
       ) : null}

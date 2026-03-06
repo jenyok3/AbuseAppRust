@@ -183,12 +183,12 @@ function App() {
             <div className="relative z-10 flex h-full w-full flex-col">
               <div className="title-bar app-draggable">
                 <div className="title-bar-layout">
-                  <div className="title-bar-left title-bar-capsule app-no-drag">
+                  <div className="title-bar-left title-bar-capsule app-no-drag p-0">
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 rounded-full bg-transparent text-white/80 hover:text-white hover:bg-transparent active:bg-transparent focus-visible:ring-0"
+                      className="m-[2px] h-7 w-7 rounded-full bg-transparent text-white/80 hover:text-white hover:bg-transparent active:bg-transparent focus-visible:ring-0"
                       onClick={() => setIsSidebarExpanded((prev) => !prev)}
                       aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
                     >

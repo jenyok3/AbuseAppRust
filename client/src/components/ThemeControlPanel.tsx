@@ -21,7 +21,7 @@ const effects: Array<{ value: ThemeEffect; preview: "snow" | "sakura" | "rain" |
 ];
 
 export function ThemeControlPanel({ open, onOpenChange }: ThemeControlPanelProps) {
-  const { language, t } = useI18n();
+  const { language } = useI18n();
   const [activeTab, setActiveTab] = useState<"theme" | "effects">("effects");
 
   const tr = (uk: string, en: string, ru: string) =>
@@ -62,6 +62,7 @@ export function ThemeControlPanel({ open, onOpenChange }: ThemeControlPanelProps
     if (next !== "none") {
       setLastEnabledEffect(next);
     }
+    onOpenChange(false);
   };
 
   return (
@@ -146,15 +147,6 @@ export function ThemeControlPanel({ open, onOpenChange }: ThemeControlPanelProps
                 <div className="grid grid-cols-2 gap-3">
                   {effects.map((effect) => {
                     const isActive = currentEffect === effect.value;
-                    const label =
-                      effect.value === "snow"
-                        ? t("settings.theme.snow")
-                        : effect.value === "sakura"
-                        ? t("settings.theme.sakura")
-                        : effect.value === "rain"
-                        ? t("settings.theme.rain")
-                        : t("settings.theme.leaves");
-
                     return (
                       <button
                         key={effect.value}
@@ -169,7 +161,6 @@ export function ThemeControlPanel({ open, onOpenChange }: ThemeControlPanelProps
                             : "border-white/10 bg-black/35 hover:border-white/20 hover:bg-black/50"
                         )}
                       >
-                        <div className="mb-2 text-xs font-semibold text-white/90">{label}</div>
                         <div className="theme-preview-surface">
                           <div className="theme-preview-layout">
                             <div className="theme-preview-col-left">
